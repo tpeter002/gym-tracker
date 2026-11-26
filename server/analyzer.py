@@ -44,6 +44,8 @@ from pydantic import BaseModel, Field
 
 PORT = int(os.environ.get("PORT", "8787"))
 MODEL_TIMEOUT = 200  # seconds for the model's answer; the apps give a whole analysis 240
+# Free models are often full for a moment: how long to wait before each further try.
+OVERLOAD_WAITS = (2, 5, 10)
 MAX_VIDEO_SECONDS = 10 * 60  # this is for reels and shorts, not full workout vlogs
 MAX_FRAMES = 24
 MIN_FRAME_INTERVAL = 1.5  # seconds; denser sampling adds cost without adding exercises
@@ -424,6 +426,20 @@ def chat_request(choice: ModelChoice, frames: list[tuple[float, Path]], info: di
     return body
 
 
+def error_code(error: object) -> str:
+    return str(error.get("code") or "") if isinstance(error, dict) else ""
+
+
+def is_overloaded(status: int, error: object) -> bool:
+    """Whether a chat API said "too busy right now". 1305 is how Z.ai says it, inside a 429."""
+    return error_code(error) in ("1305", "503", "529") or status in (503, 529)
+
+
+def is_worth_retrying(status: int, error: object) -> bool:
+    """Busy, or a bad gateway between OpenRouter and the model: the failures that pass on their own."""
+    return is_overloaded(status, error) or error_code(error) == "502" or status == 502
+
+
 def chat_error(choice: ModelChoice, status: int, error: object) -> ModelError:
     """Turns an error from a chat API into a sentence about what to do."""
     label = choice.provider.label
@@ -449,6 +465,9 @@ def chat_error(choice: ModelChoice, status: int, error: object) -> ModelError:
         return rejected_key(choice)
     if code == "1211" or status == 404:
         return ModelError(422, f"{label} has no model called “{choice.model}” — check the name {where}.{note}")
+    if is_overloaded(status, error):
+        return ModelError(503, f"{label} says {choice.model} is overloaded right now; "
+                               f"try again later, or pick another model.{note}")
     if status == 429:
         return ModelError(429, f"{label}'s rate limit was hit; try again later.{note}")
     return ModelError(502, f"The AI request failed ({status}): {detail or 'no details given'}")
@@ -459,29 +478,34 @@ def ask_chat_api(choice: ModelChoice, frames: list[tuple[float, Path]], info: di
     label = choice.provider.label
     if not choice.api_key:
         raise missing_key(choice)
-    try:
-        with http_client() as client:
-            response = client.post(
-                f"{base_url(choice.provider)}/chat/completions",
-                headers={"Authorization": f"Bearer {choice.api_key}"},
-                json=chat_request(choice, frames, info, known),
-            )
-    except httpx.TimeoutException as error:
-        raise ModelError(504, f"{label} took too long to answer; try again, or pick a faster model.") from error
-    except httpx.HTTPError as error:
-        raise ModelError(502, f"The analyzer couldn't reach {label}'s API.") from error
+    body = chat_request(choice, frames, info, known)
+    for wait in (*OVERLOAD_WAITS, None):  # None: the last try
+        try:
+            with http_client() as client:
+                response = client.post(
+                    f"{base_url(choice.provider)}/chat/completions",
+                    headers={"Authorization": f"Bearer {choice.api_key}"},
+                    json=body,
+                )
+        except httpx.TimeoutException as error:
+            raise ModelError(504, f"{label} took too long to answer; try again, or pick a faster model.") from error
+        except httpx.HTTPError as error:
+            raise ModelError(502, f"The analyzer couldn't reach {label}'s API.") from error
 
-    try:
-        data = response.json()
-    except ValueError:
-        data = None
-    if not isinstance(data, dict):
-        data = {}
-    choices = data.get("choices")
-    first = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
-    error = data.get("error") or first.get("error")
-    if response.status_code >= 400 or error:
-        raise chat_error(choice, response.status_code, error)
+        try:
+            data = response.json()
+        except ValueError:
+            data = None
+        if not isinstance(data, dict):
+            data = {}
+        choices = data.get("choices")
+        first = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+        error = data.get("error") or first.get("error")
+        if not (response.status_code >= 400 or error):
+            break
+        if wait is None or not is_worth_retrying(response.status_code, error):
+            raise chat_error(choice, response.status_code, error)
+        time.sleep(wait)
 
     finish = first.get("finish_reason")
     if finish in ("length", "model_context_window_exceeded"):

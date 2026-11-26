@@ -105,6 +105,7 @@ class ChatAPI:
         self.status = 200
         self.reply: object = self.completion(ANSWER)
         self.failure: Exception | None = None
+        self.queue: list[tuple[int, object]] = []  # answers to give first, one per request
         monkeypatch.setattr(analyzer, "http_client", lambda: httpx.Client(transport=httpx.MockTransport(self.handle)))
 
     @staticmethod
@@ -115,9 +116,10 @@ class ChatAPI:
         self.requests.append(request)
         if self.failure:
             raise self.failure
-        if isinstance(self.reply, str):
-            return httpx.Response(self.status, text=self.reply)
-        return httpx.Response(self.status, json=self.reply)
+        status, reply = self.queue.pop(0) if self.queue else (self.status, self.reply)
+        if isinstance(reply, str):
+            return httpx.Response(status, text=reply)
+        return httpx.Response(status, json=reply)
 
     @property
     def body(self) -> dict:
@@ -127,6 +129,14 @@ class ChatAPI:
 @pytest.fixture
 def chat(monkeypatch) -> ChatAPI:
     return ChatAPI(monkeypatch)
+
+
+@pytest.fixture(autouse=True)
+def waits(monkeypatch) -> list[float]:
+    """No test really waits; the pauses the analyzer asked for are recorded instead."""
+    asked: list[float] = []
+    monkeypatch.setattr(analyzer.time, "sleep", asked.append)
+    return asked
 
 
 @pytest.fixture
@@ -483,6 +493,51 @@ def test_openrouter_errors_inside_a_successful_answer_are_noticed(chat, frames):
     chat.reply = {"choices": [{"error": {"code": 502, "message": "Upstream timed out"}, "message": {"content": "{\"exer"}}]}
     failure = chat_failure(chat, frames, "openrouter")
     assert (failure.status, failure.message) == (502, "The AI request failed (502): Upstream timed out")
+
+
+ZAI_OVERLOADED = (429, {"error": {"code": "1305", "message": "The service may be temporarily overloaded, please try again later"}})
+
+
+def test_an_overloaded_model_is_asked_again(chat, frames, waits):
+    chat.queue = [ZAI_OVERLOADED, ZAI_OVERLOADED]
+    exercises, _ = analyzer.identify_exercises(analyzer.choose_model("zai", api_key="k"), frames, INFO, KNOWN)
+    assert exercises == EXERCISES
+    assert len(chat.requests) == 3
+    assert waits == [2, 5]
+    assert chat.requests[0].content == chat.requests[2].content  # the same question each time
+
+
+def test_a_model_that_stays_overloaded_is_reported_as_that(chat, frames, waits):
+    chat.status, chat.reply = ZAI_OVERLOADED
+    failure = chat_failure(chat, frames)
+    assert (failure.status, failure.message) == (
+        503, "Z.ai says glm-4.6v-flash is overloaded right now; try again later, or pick another model. "
+             "(The service may be temporarily overloaded, please try again later)")
+    assert len(chat.requests) == 4
+    assert waits == [2, 5, 10]
+
+
+@pytest.mark.parametrize("status, reply", [
+    (503, {"error": {"code": 503, "message": "No available provider"}}),
+    (502, "<html>Bad gateway</html>"),
+    (200, {"error": {"code": 529, "message": "Provider overloaded"}}),
+])
+def test_openrouter_being_busy_is_also_retried(chat, frames, waits, status, reply):
+    chat.queue = [(status, reply)]
+    assert analyzer.identify_exercises(analyzer.choose_model("openrouter", api_key="k"), frames, INFO, KNOWN)[0] == EXERCISES
+    assert waits == [2]
+
+
+def test_other_failures_are_not_retried(chat, frames, waits):
+    for status, error in [(401, {"code": "401", "message": "token expired or incorrect"}),
+                          (429, {"code": "1302", "message": "Rate limit reached for requests"}),
+                          (429, {"code": "1113", "message": "Insufficient balance"}),
+                          (500, {"code": "1200", "message": "API Call Error"})]:
+        chat.requests.clear()
+        chat.status, chat.reply = status, {"error": error}
+        chat_failure(chat, frames)
+        assert len(chat.requests) == 1
+    assert waits == []
 
 
 def test_a_rejected_key_from_the_env_file_points_at_the_env_file(monkeypatch, chat, frames):

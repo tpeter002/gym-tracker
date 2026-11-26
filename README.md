@@ -99,8 +99,9 @@ order above is. The line the analyzer prints at start-up says which model it wil
 What costs nothing, as of November 2026:
 
 - **Gemini** — the Flash models have a free daily allowance (your project's limits are shown in Google AI
-  Studio). Google uses free-tier requests to improve its products, and its terms allow only the paid tier
-  for apps offered to users in the EEA, Switzerland and the UK.
+  Studio). They take turns being "in high demand"; the analyzer then asks the next Flash model, and the
+  video shows which one answered. Google uses free-tier requests to improve its products, and its terms
+  allow only the paid tier for apps offered to users in the EEA, Switzerland and the UK.
 - **OpenRouter** — models whose name ends in `:free`, and `openrouter/free`; 50 requests a day, 1,000 once
   the account has ever bought $10 of credit.
 - **Z.ai** — `glm-4.6v-flash` is listed as free, but on the day this was written it answered every request
@@ -111,10 +112,13 @@ model, and optionally a key of your own that is sent along with each video inste
 The iPhone app has no such setting and uses whatever the analyzer is set to. A saved video shows which
 model identified it.
 
-Z.ai, OpenRouter and Gemini are covered by tests against their documented request and answer formats,
-and were run against the real services as far as a made-up key gets (they refuse it, and the app says
-so). No real analysis has come back from any of them yet, so how well a given model names exercises is
-something to try on your own videos — **Identify Again** makes that a one-tap comparison.
+Gemini has been run for real on its free tier (26 November 2026): a one-exercise Instagram reel and a
+five-exercise YouTube video were both identified, in 40 seconds to 3½ minutes depending on which model
+had capacity. The Flash-Lite models named the reel's exercise wrongly, so they are offered but never
+used as a fallback. Z.ai and OpenRouter are covered by tests against their documented request and
+answer formats and were run as far as a made-up key gets (they refuse it, and the app says so); Z.ai's
+free model has not returned an analysis yet. How well a given model names exercises is something to try
+on your own videos — **Identify Again** makes that a one-tap comparison.
 
 ## Tests
 

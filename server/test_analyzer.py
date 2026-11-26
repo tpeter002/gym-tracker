@@ -106,6 +106,7 @@ class ChatAPI:
         self.reply: object = self.completion(ANSWER)
         self.failure: Exception | None = None
         self.queue: list[tuple[int, object]] = []  # answers to give first, one per request
+        self.by_model: dict[str, tuple[int, object]] = {}  # answers that depend on the model asked
         monkeypatch.setattr(analyzer, "http_client", lambda: httpx.Client(transport=httpx.MockTransport(self.handle)))
 
     @staticmethod
@@ -116,7 +117,11 @@ class ChatAPI:
         self.requests.append(request)
         if self.failure:
             raise self.failure
-        status, reply = self.queue.pop(0) if self.queue else (self.status, self.reply)
+        asked = json.loads(request.content).get("model") if request.method == "POST" else None
+        if self.queue:
+            status, reply = self.queue.pop(0)
+        else:
+            status, reply = self.by_model.get(asked, (self.status, self.reply))
         if isinstance(reply, str):
             return httpx.Response(status, text=reply)
         return httpx.Response(status, json=reply)
@@ -124,6 +129,10 @@ class ChatAPI:
     @property
     def body(self) -> dict:
         return json.loads(self.requests[-1].content)
+
+    @property
+    def models_asked(self) -> list[str]:
+        return [json.loads(request.content)["model"] for request in self.requests]
 
 
 @pytest.fixture
@@ -442,7 +451,9 @@ def test_the_request_to_gemini(chat, frames):
     (400, [{"error": {"code": 400, "message": "Unable to process input image.", "status": "INVALID_ARGUMENT"}}], 502,
      "The AI request failed (400): Unable to process input image."),
     (429, [{"error": {"code": 429, "message": "You exceeded your current quota.", "status": "RESOURCE_EXHAUSTED"}}], 429,
-     "Google's rate limit was hit; try again later. (You exceeded your current quota.)"),
+     # Every model answers the same here, so the fallbacks were out of quota as well.
+     "Google's rate limit was hit; try again later. (You exceeded your current quota.) "
+     "The models tried in its place didn't answer either."),
     (404, [{"error": {"code": 404, "message": "models/gemini-9 is not found", "status": "NOT_FOUND"}}], 422,
      "Google has no model called “gemini-3.8-flash” — check the name in the app under Settings → Video model. "
      "(models/gemini-9 is not found)"),
@@ -458,6 +469,92 @@ def test_gemini_being_overloaded_is_retried(chat, frames, waits):
     chat.reply = chat.completion(ANSWER)
     assert analyzer.identify_exercises(analyzer.choose_model("gemini", api_key="k"), frames, INFO, KNOWN)[0] == EXERCISES
     assert waits == [2]
+
+
+GEMINI_BUSY = (503, [{"error": {"code": 503, "message": "This model is currently experiencing high demand.", "status": "UNAVAILABLE"}}])
+GEMINI_QUOTA = (429, [{"error": {"code": 429, "message": "You exceeded your current quota.", "status": "RESOURCE_EXHAUSTED"}}])
+GEMINI_GONE = (404, [{"error": {"code": 404, "message": "This model is no longer available to new users.", "status": "NOT_FOUND"}}])
+GEMINI_FLASH = ["gemini-3.8-flash", "gemini-3-flash-preview", "gemini-4-hydrogen", "gemini-3.6-flash"]
+
+
+def gemini(frames, model=None):
+    return analyzer.identify_exercises(analyzer.choose_model("gemini", model, "k"), frames, INFO, KNOWN)
+
+
+def test_a_busy_model_gets_a_second_chance_before_others_are_asked(chat, frames, waits):
+    chat.queue = [GEMINI_BUSY]
+    assert gemini(frames) == (EXERCISES, "gemini-3.8-flash")
+    assert chat.models_asked == ["gemini-3.8-flash", "gemini-3.8-flash"]
+    assert waits == [2]
+
+
+def test_while_a_model_stays_busy_the_next_free_one_answers(chat, frames, waits):
+    chat.by_model = {"gemini-3.8-flash": GEMINI_BUSY}
+    exercises, answered_by = gemini(frames)
+    assert exercises == EXERCISES
+    assert answered_by == "gemini-3-flash-preview"  # and the app shows that name
+    assert chat.models_asked == ["gemini-3.8-flash", "gemini-3.8-flash", "gemini-3-flash-preview"]
+    assert waits == [2]
+
+
+def test_a_model_out_of_quota_is_not_asked_again_but_the_others_are(chat, frames, waits):
+    chat.by_model = {"gemini-3.8-flash": GEMINI_QUOTA, "gemini-3-flash-preview": GEMINI_BUSY}
+    assert gemini(frames)[1] == "gemini-4-hydrogen"
+    assert chat.models_asked == ["gemini-3.8-flash", "gemini-3-flash-preview", "gemini-4-hydrogen"]
+
+
+def test_a_fallback_that_fails_for_its_own_reasons_is_skipped_quietly(chat, frames, waits):
+    chat.by_model = {"gemini-3.8-flash": GEMINI_BUSY, "gemini-3-flash-preview": GEMINI_GONE, "gemini-4-hydrogen": GEMINI_BUSY}
+    assert gemini(frames)[1] == "gemini-3.6-flash"
+    assert chat.models_asked == ["gemini-3.8-flash", "gemini-3.8-flash", "gemini-3-flash-preview", "gemini-4-hydrogen", "gemini-3.6-flash"]
+
+
+def test_when_every_model_is_busy_the_chosen_ones_failure_is_reported(chat, frames, waits):
+    chat.status, chat.reply = GEMINI_BUSY
+    failure = chat_failure(chat, frames, "gemini")
+    assert (failure.status, failure.message) == (
+        503, "Google says gemini-3.8-flash is overloaded right now; try again later, or pick another model. "
+             "(This model is currently experiencing high demand.) The models tried in its place didn't answer either.")
+    assert chat.models_asked == ["gemini-3.8-flash", *GEMINI_FLASH * 3]
+    assert waits == [2, 5, 10]
+
+
+def test_a_chosen_model_outside_the_fallback_list_is_still_asked_first(chat, frames, waits):
+    chat.by_model = {"gemini-3.5-flash-lite": GEMINI_BUSY}
+    assert gemini(frames, "gemini-3.5-flash-lite")[1] == "gemini-3.8-flash"
+    assert chat.models_asked == ["gemini-3.5-flash-lite", "gemini-3.5-flash-lite", "gemini-3.8-flash"]
+
+
+def test_a_rejected_key_ends_it_at_once_fallbacks_or_not(chat, frames, waits):
+    chat.status, chat.reply = 400, [{"error": {"code": 400, "message": "Please pass a valid API key", "status": "INVALID_ARGUMENT"}}]
+    assert chat_failure(chat, frames, "gemini").status == 401
+    assert len(chat.requests) == 1 and waits == []
+
+
+def test_quota_errors_from_every_model_end_with_the_chosen_models(chat, frames, waits):
+    chat.status, chat.reply = GEMINI_QUOTA
+    failure = chat_failure(chat, frames, "gemini")
+    assert failure.status == 429
+    assert failure.message.startswith("Google's rate limit was hit; try again later. (You exceeded your current quota.)")
+    assert chat.models_asked == GEMINI_FLASH  # each asked once, none twice
+
+
+def test_only_gemini_has_fallbacks_and_they_are_all_on_its_free_tier():
+    assert analyzer.PROVIDERS["gemini"].fallbacks == tuple(GEMINI_FLASH)
+    offered = [model_id for model_id, _ in analyzer.PROVIDERS["gemini"].models]
+    assert set(GEMINI_FLASH) <= set(offered)
+    # Z.ai's other vision models and most of OpenRouter cost money; Claude has its own fallback.
+    for provider in ("anthropic", "zai", "openrouter"):
+        assert analyzer.PROVIDERS[provider].fallbacks == ()
+
+
+def test_it_gives_up_before_the_apps_stop_waiting(monkeypatch, chat, frames, waits):
+    clock = iter(range(0, 100_000, 60))  # every look at the clock is a minute later
+    monkeypatch.setattr(analyzer, "now", lambda: next(clock))
+    chat.status, chat.reply = GEMINI_BUSY
+    failure = chat_failure(chat, frames, "gemini")
+    assert failure.status == 503
+    assert len(chat.requests) < 8 and len(waits) < 3
 
 
 def test_the_address_of_a_chat_api_can_be_changed_in_the_env_file(monkeypatch, chat, frames):
@@ -718,7 +815,7 @@ def test_models_for_the_services_with_a_fixed_list(service):
     assert [model["id"] for model in service.get("/models", params={"provider": "anthropic"}).json()["models"]] == \
         ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]
     assert [model["id"] for model in service.get("/models", params={"provider": "gemini"}).json()["models"]] == \
-        ["gemini-3.8-flash", "gemini-4-hydrogen", "gemini-3.6-flash", "gemini-3.5-flash-lite"]
+        ["gemini-3.8-flash", "gemini-3-flash-preview", "gemini-4-hydrogen", "gemini-3.6-flash", "gemini-3.5-flash-lite"]
     assert service.get("/models", params={"provider": "openai"}).status_code == 422
     assert service.get("/models").status_code == 422
 

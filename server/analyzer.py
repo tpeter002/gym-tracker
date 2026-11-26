@@ -94,6 +94,9 @@ class Provider:
     models: tuple[tuple[str, str], ...]  # (id, name) offered in the app's model field
     base_url: str | None = None  # an OpenAI-style chat API; None means the Anthropic SDK
     json_schema: bool = False  # whether that chat API takes response_format: json_schema
+    # Models to ask instead, in this order, while the chosen one is too busy or out of
+    # quota. Only ever models of the same price class: a free choice must stay free.
+    fallbacks: tuple[str, ...] = ()
 
 
 # In this order: when server/.env names no service, the first one it has a key for is used.
@@ -120,10 +123,15 @@ PROVIDERS = {provider.id: provider for provider in (
     # November 2026). No response_format: Gemini's schema dialect differs from RESULT_SCHEMA's.
     Provider("gemini", "Google", "GEMINI_API_KEY", "gemini-3.8-flash", (
         ("gemini-3.8-flash", "Gemini 3.8 Flash — free tier"),
+        ("gemini-3-flash-preview", "Gemini 3 Flash Preview — free tier"),
         ("gemini-4-hydrogen", "Gemini 4 Hydrogen — free tier"),
         ("gemini-3.6-flash", "Gemini 3.6 Flash — free tier"),
-        ("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite — free tier"),
-    ), base_url="https://generativelanguage.googleapis.com/v1beta/openai"),
+        ("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite — free tier, less accurate"),
+    ), base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+        # The free tier's models take turns being "in high demand". The Flash-Lite ones are
+        # left out: on a test reel they named the exercise wrongly. 3.6 Flash comes last
+        # because it took minutes to answer when the others took well under one.
+        fallbacks=("gemini-3.8-flash", "gemini-3-flash-preview", "gemini-4-hydrogen", "gemini-3.6-flash")),
 )}
 
 # Server-side fallback after a refusal exists on these only (Haiku 5.5 has none).
@@ -482,42 +490,41 @@ def chat_error(choice: ModelChoice, status: int, error: object) -> ModelError:
     return ModelError(502, f"The AI request failed ({status}): {detail or 'no details given'}")
 
 
-def ask_chat_api(choice: ModelChoice, frames: list[tuple[float, Path]], info: dict, known: list[str]) -> tuple[str, str]:
-    """Returns the answer's text and the model that wrote it."""
+def now() -> float:
+    return time.monotonic()
+
+
+def chat_attempt(choice: ModelChoice, model: str, body: dict, deadline: float) -> tuple[int, dict, dict, object]:
+    """One request to a chat API: the HTTP status, the answer, its first choice, and the error if it holds one."""
     label = choice.provider.label
-    if not choice.api_key:
-        raise missing_key(choice)
-    body = chat_request(choice, frames, info, known)
-    for wait in (*OVERLOAD_WAITS, None):  # None: the last try
-        try:
-            with http_client() as client:
-                response = client.post(
-                    f"{base_url(choice.provider)}/chat/completions",
-                    headers={"Authorization": f"Bearer {choice.api_key}"},
-                    json=body,
-                )
-        except httpx.TimeoutException as error:
-            raise ModelError(504, f"{label} took too long to answer; try again, or pick a faster model.") from error
-        except httpx.HTTPError as error:
-            raise ModelError(502, f"The analyzer couldn't reach {label}'s API.") from error
+    try:
+        with http_client() as client:
+            response = client.post(
+                f"{base_url(choice.provider)}/chat/completions",
+                headers={"Authorization": f"Bearer {choice.api_key}"},
+                json={**body, "model": model},
+                timeout=max(10.0, deadline - now()),
+            )
+    except httpx.TimeoutException as error:
+        raise ModelError(504, f"{label} took too long to answer; try again, or pick a faster model.") from error
+    except httpx.HTTPError as error:
+        raise ModelError(502, f"The analyzer couldn't reach {label}'s API.") from error
 
-        try:
-            data = response.json()
-        except ValueError:
-            data = None
-        if isinstance(data, list) and data and isinstance(data[0], dict):
-            data = data[0]  # Google wraps its errors in a list
-        if not isinstance(data, dict):
-            data = {}
-        choices = data.get("choices")
-        first = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
-        error = data.get("error") or first.get("error")
-        if not (response.status_code >= 400 or error):
-            break
-        if wait is None or not is_worth_retrying(response.status_code, error):
-            raise chat_error(choice, response.status_code, error)
-        time.sleep(wait)
+    try:
+        data = response.json()
+    except ValueError:
+        data = None
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        data = data[0]  # Google wraps its errors in a list
+    if not isinstance(data, dict):
+        data = {}
+    choices = data.get("choices")
+    first = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+    return response.status_code, data, first, data.get("error") or first.get("error")
 
+
+def chat_text(model: str, data: dict, first: dict) -> tuple[str, str]:
+    """The text of a successful chat answer, and the model that wrote it."""
     finish = first.get("finish_reason")
     if finish in ("length", "model_context_window_exceeded"):
         raise ModelError(502, "The model's answer was cut off; try again.")
@@ -530,7 +537,52 @@ def ask_chat_api(choice: ModelChoice, frames: list[tuple[float, Path]], info: di
     if not isinstance(content, str) or not content.strip():
         raise ModelError(502, "The model returned an empty answer; try again, or pick another model.")
     answered_by = data.get("model")
-    return content, answered_by if isinstance(answered_by, str) and answered_by else choice.model
+    return content, answered_by if isinstance(answered_by, str) and answered_by else model
+
+
+def ask_chat_api(choice: ModelChoice, frames: list[tuple[float, Path]], info: dict, known: list[str]) -> tuple[str, str]:
+    """Returns the answer's text and the model that wrote it.
+
+    A model that is busy is asked again after a pause. From the second round on
+    the provider's fallback models are asked as well, and a model that is out of
+    quota or fails some other way leaves the rotation. If nobody answers, the
+    failure reported is the chosen model's.
+    """
+    if not choice.api_key:
+        raise missing_key(choice)
+    body = chat_request(choice, frames, info, known)
+    deadline = now() + MODEL_TIMEOUT
+    rotation = [choice.model]
+    spares = [model for model in choice.provider.fallbacks if model != choice.model]
+    asked_spares = False
+    failure: ModelError | None = None
+
+    for wait in (0, *OVERLOAD_WAITS):
+        if wait:
+            if now() + wait + 30 > deadline:
+                break  # no time left for another round within what the apps wait for
+            time.sleep(wait)
+            rotation, spares, asked_spares = rotation + spares, [], asked_spares or bool(spares)
+        for model in list(rotation):
+            status, data, first, error = chat_attempt(choice, model, body, deadline)
+            if status < 400 and not error:
+                return chat_text(model, data, first)
+            problem = chat_error(choice, status, error)
+            busy = is_worth_retrying(status, error)
+            if model == choice.model:
+                failure = problem
+                out_of_quota = problem.status == 429
+                if not busy and not (out_of_quota and choice.provider.fallbacks):
+                    raise problem  # nothing that waiting or another model would fix
+            if not busy:
+                rotation.remove(model)
+        if not rotation and not spares:
+            break
+
+    assert failure is not None  # the chosen model is always asked first
+    if asked_spares:
+        failure = ModelError(failure.status, f"{failure.message} The models tried in its place didn't answer either.")
+    raise failure
 
 
 def extract_json(text: str) -> object:

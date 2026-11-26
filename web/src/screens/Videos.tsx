@@ -138,6 +138,9 @@ export function VideoDetail({ state, video }: { state: AppState; video: SavedVid
   const pending = pendingSuggestions(state, video);
   const link = webLink(video.url);
 
+  // Which model named the exercises — what you want to know when comparing models.
+  const identifiedBy = video.analyzedBy && !error && !isAnalyzing ? `Identified by ${video.analyzedBy}.` : null;
+
   let note: React.ReactNode = null;
   if (error) note = <span className="error-text">{error}</span>;
   else if (isAnalyzing) note = 'Downloading and watching the video. This can take up to a minute.';
@@ -219,7 +222,7 @@ export function VideoDetail({ state, video }: { state: AppState; video: SavedVid
         </Section>
       )}
 
-      <Section footer={note}>
+      <Section footer={(note || identifiedBy) && <>{note}{note && identifiedBy && ' '}{identifiedBy}</>}>
         <button className="row accent" disabled={isAnalyzing} onClick={() => void analyzeVideo(video.id)}>
           <Sparkles size={20} aria-hidden />
           <span className="grow">{video.analyzedAt === null ? 'Identify Exercises' : 'Identify Again'}</span>

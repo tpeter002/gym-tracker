@@ -91,7 +91,7 @@ export function saveVideoLink(state: AppState, raw: string): { id: string; creat
   if (existing) return { id: existing.id, created: false };
   const video: SavedVideo = {
     id: uid(), url: link, title: '', caption: '', thumbnail: null,
-    addedAt: Date.now(), analyzedAt: null, suggestions: [],
+    addedAt: Date.now(), analyzedAt: null, analyzedBy: null, suggestions: [],
   };
   state.videos.push(video);
   return { id: video.id, created: true };
@@ -162,6 +162,8 @@ export interface AnalysisResult {
   caption: string | null;
   thumbnail: string | null;
   exercises: ExerciseSuggestion[];
+  /** The model that answered, when the analyzer says (older analyzers don't). */
+  model?: string | null;
 }
 
 /**
@@ -175,6 +177,7 @@ export function applyAnalysis(state: AppState, videoId: string, result: Analysis
   const isFirstResult = video.analyzedAt === null;
   video.suggestions = result.exercises;
   video.analyzedAt = now;
+  video.analyzedBy = result.model ?? null;
   if (isFirstResult) {
     for (const suggestion of result.exercises) adoptSuggestion(state, suggestion, videoId);
   }

@@ -40,7 +40,7 @@ export default defineConfig({
   plugins: [react(), serviceWorker()],
   server: {
     // `npm run dev` next to a running analyzer (uv run ../server/analyzer.py).
-    proxy: { '/health': ANALYZER, '/analyze': ANALYZER },
+    proxy: { '/health': ANALYZER, '/analyze': ANALYZER, '/models': ANALYZER },
   },
   test: {
     include: ['tests/unit/**/*.test.ts'],

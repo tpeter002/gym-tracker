@@ -1,5 +1,5 @@
-import { DEFAULT_SETTINGS } from './types';
-import type { AppState, Settings } from './types';
+import { normalizeSettings } from './types';
+import type { AppState } from './types';
 
 // IndexedDB: one object store per kind of record, each record under its id,
 // so a change writes only the records it touched. A workout is one record
@@ -36,12 +36,13 @@ export async function loadState(db: IDBDatabase): Promise<AppState> {
     all<AppState['workouts'][number]>('workouts'),
     all<AppState['bodyWeights'][number]>('bodyWeights'),
     all<AppState['videos'][number]>('videos'),
-    done(meta.get('settings') as IDBRequest<Partial<Settings> | undefined>),
+    done(meta.get('settings') as IDBRequest<unknown>),
     done(meta.get('libraryVersion') as IDBRequest<number | undefined>),
   ]);
   return {
     exercises, workouts, bodyWeights, videos,
-    settings: { ...DEFAULT_SETTINGS, ...settings },
+    // What was saved by an earlier version of the app may lack newer settings.
+    settings: normalizeSettings(settings),
     libraryVersion: libraryVersion ?? 0,
   };
 }

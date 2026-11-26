@@ -51,8 +51,9 @@ The link is picked up the next time you open Gym Tracker — the share sheet onl
 
 ## Video analyzer
 
-`server/analyzer.py` downloads a clip with yt-dlp, samples frames with ffmpeg and asks Claude
-which exercises are in it. It runs on your Mac; the phone reaches it over Wi-Fi.
+`server/analyzer.py` downloads a clip with yt-dlp, samples frames with ffmpeg and asks a vision model
+— Claude unless you choose another — which exercises are in it. It runs on your Mac; the phone reaches
+it over Wi-Fi.
 
 ```sh
 brew install ffmpeg uv                               # once
@@ -72,11 +73,42 @@ stay removed.
 - Instagram usually refuses anonymous downloads. Start the analyzer with
   `YTDLP_COOKIES_FROM_BROWSER=safari` (or `chrome`) to use the login from that browser.
 - `uv run server/analyzer.py --check <url>` tests just the download and frame steps, no AI call.
-- Each analysis sends up to 24 frames to Claude Opus 5.5 — by a rough estimate 5–10 cents per
-  video. The service has no authentication, so only run it on a network you trust.
+- Each analysis sends up to 24 frames to the model. With Claude Opus 5.5 that is, by a rough
+  estimate, 5–10 cents per video; the free models below cost nothing but have daily limits.
+- The service has no authentication, so only run it on a network you trust.
+
+### Choosing the model
+
+The analyzer can ask Claude, [Z.ai](https://z.ai)'s GLM models, or any image-reading model on
+[OpenRouter](https://openrouter.ai). Put the key of the service you want in `server/.env`:
+
+```sh
+ANTHROPIC_API_KEY=sk-ant-...    # Claude; claude-opus-5-5 unless ANALYZER_MODEL says otherwise
+ZAI_API_KEY=...                 # Z.ai; glm-4.6v-flash (free) by default
+OPENROUTER_API_KEY=sk-or-...    # OpenRouter; openrouter/free by default, which picks a free model
+
+ANALYZER_PROVIDER=zai           # anthropic, zai or openrouter — only needed with more than one key
+ANALYZER_MODEL=glm-5.3-flash    # optional: another model of that service
+```
+
+With one key, that service is used; with several and no `ANALYZER_PROVIDER`, Claude is. The line the
+analyzer prints at start-up says which model it will ask.
+
+The web version can also choose for itself, per browser: Settings → Video model sets the service and the
+model, and optionally a key of your own that is sent along with each video instead of the analyzer's.
+The iPhone app has no such setting and uses whatever the analyzer is set to. A saved video shows which
+model identified it.
+
+Z.ai and OpenRouter are covered by tests against their documented request and answer formats, and were
+run against the real services as far as a made-up key gets (they refuse it, and the app says so). No
+real analysis has been run through them yet, so how well a given model names exercises is something to
+try on your own videos — **Identify Again** makes that a one-tap comparison.
 
 ## Tests
 
+- **Analyzer tests**: `uv run server/test_analyzer.py` — model choice, the requests sent to Claude, Z.ai
+  and OpenRouter, reading their answers and errors. They call no outside service.
+- **Web version**: see [`web/README.md`](web/README.md#tests).
 - **Unit tests** (`GymTracker` scheme, ⌘U): the Strong CSV parser, and the logging / import paths
   against a real in-memory database.
 - **UI tests** (`GymTrackerUITests` scheme): walk the main flows in the simulator — log, finish and

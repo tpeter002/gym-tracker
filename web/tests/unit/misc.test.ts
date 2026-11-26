@@ -89,7 +89,7 @@ describe('backup', () => {
     addExercise(state, workoutId, state.exercises[0].id);
     state.bodyWeights.push({ id: 'w1', date: 1_700_000_000_000, kg: 84.2 });
     saveVideoLink(state, 'https://www.youtube.com/shorts/abcdefghijk');
-    state.settings = { unit: 'lb', effort: 'rir', analyzerURL: 'my-mac.local:8787' };
+    state.settings = { ...state.settings, unit: 'lb', effort: 'rir', analyzerURL: 'my-mac.local:8787' };
     return state;
   }
 

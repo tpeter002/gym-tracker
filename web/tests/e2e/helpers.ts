@@ -92,6 +92,51 @@ export async function mockAnalyzer(page: Page, status: number, body: unknown): P
   return requests;
 }
 
+/** What a current analyzer says about its model services in /health. */
+export const ANALYZER_SERVICES = {
+  ok: true,
+  default_provider: 'anthropic',
+  providers: [
+    { id: 'anthropic', label: 'Anthropic', default_model: 'claude-opus-5-5', has_key: true },
+    { id: 'zai', label: 'Z.ai', default_model: 'glm-4.6v-flash', has_key: false },
+    { id: 'openrouter', label: 'OpenRouter', default_model: 'openrouter/free', has_key: false },
+  ],
+};
+
+/**
+ * Stands in for an analyzer that lets the app choose the model: /health lists
+ * the services, /models suggests names, and /analyze answers with CANNED_ANALYSIS
+ * plus the model it was asked for. Returns the /analyze requests as they arrive.
+ */
+export async function mockModelAnalyzer(page: Page): Promise<Record<string, unknown>[]> {
+  const requests: Record<string, unknown>[] = [];
+  await page.route('**/health', (route) => route.fulfill({ json: ANALYZER_SERVICES }));
+  await page.route(/\/models\?provider=/, (route) => {
+    const provider = new URL(route.request().url()).searchParams.get('provider');
+    const models = provider === 'zai'
+      ? [{ id: 'glm-4.6v-flash', label: 'GLM-4.6V Flash — free' }, { id: 'glm-5.3-flash', label: 'GLM-5.3 Flash' }]
+      : [{ id: 'openrouter/free', label: 'Free Models Router — free' }];
+    return route.fulfill({ json: { provider, default_model: models[0].id, models } });
+  });
+  await page.route('**/analyze', (route) => {
+    const sent = JSON.parse(route.request().postData() ?? '{}') as Record<string, unknown>;
+    requests.push(sent);
+    const provider = sent.provider ?? 'anthropic';
+    const fallback = ANALYZER_SERVICES.providers.find((service) => service.id === provider)?.default_model;
+    return route.fulfill({ json: { ...CANNED_ANALYSIS, provider, model: sent.model ?? fallback } });
+  });
+  return requests;
+}
+
+/** Saves a link under Saved Videos and lands on that video's page. */
+export async function saveVideo(page: Page, link: string): Promise<void> {
+  await page.goto('/#/videos');
+  await page.getByRole('button', { name: 'Add Link', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Video link' }).fill(link);
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('heading', { name: 'Saved Video' })).toBeVisible();
+}
+
 export const CANNED_ANALYSIS = {
   title: '3 cable moves for rear delts',
   caption: 'Save this for your next pull day',

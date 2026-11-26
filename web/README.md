@@ -32,6 +32,8 @@ except automatic identification: videos are saved as links and you name their ex
 
 In the browser's own storage (IndexedDB) — per browser, per device, per address. Nothing is sent
 anywhere; the only network calls are to the analyzer, and to YouTube for a video's still image.
+An API key entered under Settings → Video model is kept there too; it is left out of backups and goes
+only to your analyzer.
 
 - **Settings → Download Backup** saves everything as one JSON file; **Restore Backup** loads it, replacing
   what is there. That is also how you move between browsers, devices or addresses.
@@ -56,6 +58,12 @@ Saved Videos → **+**, then paste the link (text around it is fine). With the a
 is identified straight away and its exercises go onto the to-try list; otherwise it happens the next
 time the app is open and the analyzer answers.
 
+Which model names the exercises is the analyzer's choice (see the main README) unless you make it here:
+**Settings → Video model** picks the service — Claude, Z.ai or OpenRouter — and the model, with
+suggestions from the analyzer (for OpenRouter, its current list with prices, free ones first). Leave the
+key field empty to use the key the analyzer has, or enter your own. Each saved video shows which model
+identified it, and **Identify Again** asks whichever model is selected now.
+
 A web page can't appear in the iPhone share sheet. Two partial substitutes:
 
 - Opening `<app address>/?url=<link>` saves the link — usable from a bookmark or an iOS Shortcut that
@@ -66,15 +74,16 @@ A web page can't appear in the iPhone share sheet. Two partial substitutes:
 ## Tests
 
 ```sh
-npm test                               # logic: workouts, Strong import, videos, backup (Vitest)
+npm test                               # logic: workouts, Strong import, videos, backup, model choice (Vitest)
 npx playwright install chromium webkit # once
 npm run test:e2e                       # the built app in desktop Chromium and iPhone-sized WebKit
+uv run ../server/test_analyzer.py      # the analyzer's side
 ```
 
 The browser tests stand in for the analyzer themselves, so they need neither the Mac service nor an API
 key. They cover logging, finishing and repeating a workout, custom exercises, the to-try list, saved
-videos with and without the analyzer, Strong import, body weight, units, backup and restore, two tabs,
-and opening without a connection (Chromium only).
+videos with and without the analyzer, choosing the model and key, Strong import, body weight, units,
+backup and restore, two tabs, and opening without a connection (Chromium only).
 
 ## Code
 

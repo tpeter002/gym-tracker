@@ -1,16 +1,21 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["anthropic", "fastapi", "uvicorn", "yt-dlp"]
+# dependencies = ["anthropic", "fastapi", "httpx", "uvicorn", "yt-dlp"]
 # ///
 """Names the exercises in a saved workout video.
 
 POST /analyze {"url": ..., "known_exercises": [...]} downloads the clip with
-yt-dlp, samples frames with ffmpeg and asks Claude which exercises are shown.
-The Gym Tracker app calls this from Saved Videos. If the web version has been
-built (web/dist), it is served from the same address, so it needs no setup.
+yt-dlp, samples frames with ffmpeg and asks a vision model which exercises are
+shown. The Gym Tracker app calls this from Saved Videos. If the web version has
+been built (web/dist), it is served from the same address, so it needs no setup.
+
+The model is Claude unless something else is chosen: in server/.env
+(ANALYZER_PROVIDER, ANALYZER_MODEL and that service's API key), or per request
+with "provider", "model" and "api_key" — see PROVIDERS below.
 
     uv run server/analyzer.py                 # start the service on port 8787
     uv run server/analyzer.py --check <url>   # download + frames only, no AI call
+    uv run server/test_analyzer.py            # the tests; they call no outside service
 """
 
 from __future__ import annotations
@@ -18,23 +23,27 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
 import sys
 import tempfile
+import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import anthropic
+import httpx
 import uvicorn
 import yt_dlp
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 PORT = int(os.environ.get("PORT", "8787"))
-MODEL = "claude-opus-5-5"
+MODEL_TIMEOUT = 200  # seconds for the model's answer; the apps give a whole analysis 240
 MAX_VIDEO_SECONDS = 10 * 60  # this is for reels and shorts, not full workout vlogs
 MAX_FRAMES = 24
 MIN_FRAME_INTERVAL = 1.5  # seconds; denser sampling adds cost without adding exercises
@@ -71,6 +80,47 @@ RESULT_SCHEMA = {
     "additionalProperties": False,
 }
 
+
+
+@dataclass(frozen=True)
+class Provider:
+    """A service whose models can look at the frames."""
+    id: str
+    label: str  # the company, as it is named in messages
+    key_env: str  # the line in server/.env that holds its API key
+    default_model: str
+    models: tuple[tuple[str, str], ...]  # (id, name) offered in the app's model field
+    base_url: str | None = None  # an OpenAI-style chat API; None means the Anthropic SDK
+    json_schema: bool = False  # whether that chat API takes response_format: json_schema
+
+
+# The first one is the default when server/.env names none and holds no other key.
+PROVIDERS = {provider.id: provider for provider in (
+    Provider("anthropic", "Anthropic", "ANTHROPIC_API_KEY", "claude-opus-5-5", (
+        ("claude-opus-5-5", "Claude Opus 5.5"),
+        ("claude-sonnet-5-5", "Claude Sonnet 5.5"),
+        ("claude-haiku-5-5", "Claude Haiku 5.5"),
+    )),
+    # Vision models from docs.z.ai (pricing page, November 2026); the Flash one costs nothing.
+    Provider("zai", "Z.ai", "ZAI_API_KEY", "glm-4.6v-flash", (
+        ("glm-4.6v-flash", "GLM-4.6V Flash — free"),
+        ("glm-4.6v-flashx", "GLM-4.6V FlashX"),
+        ("glm-4.6v", "GLM-4.6V"),
+        ("glm-5.3-flash", "GLM-5.3 Flash"),
+        ("glm-5.3-flashx", "GLM-5.3 FlashX"),
+    ), base_url="https://api.z.ai/api/paas/v4"),
+    # Its model list changes monthly, so /models asks OpenRouter itself; this is the fallback.
+    # openrouter/free routes to whichever free model can read images.
+    Provider("openrouter", "OpenRouter", "OPENROUTER_API_KEY", "openrouter/free", (
+        ("openrouter/free", "Free Models Router — picks a free model that reads images"),
+    ), base_url="https://openrouter.ai/api/v1", json_schema=True),
+)}
+
+# Server-side fallback after a refusal exists on these only (Haiku 5.5 has none).
+CLAUDE_SERVER_FALLBACK = ("claude-opus-5-5", "claude-sonnet-5-5")
+
+MODEL_NAME = re.compile(r"[\w.:/@~+-]{1,200}")
+
 SYSTEM_PROMPT = """\
 You identify the exercises in short workout videos that someone saved from Instagram, TikTok or \
 YouTube. They want to try these exercises at the gym and log them in a workout tracker, so what \
@@ -98,14 +148,45 @@ your own reading of the movement. List each exercise once even if it appears in 
 the order it appears. If the video isn't a workout, or you can't tell what is being performed, \
 return an empty list rather than guessing — a wrong name is worse than none."""
 
+# Claude is held to RESULT_SCHEMA by the API. The other services get the same shape
+# in words, since not every model behind them enforces a schema.
+JSON_INSTRUCTIONS = f"""\
+Answer with a single JSON object and nothing else — no explanation, no Markdown fence:
+{{"exercises": [{{"name": "…", "library_match": "…", "muscle_group": "…", "equipment": "…", \
+"notes": "…", "sets_reps": "…"}}]}}
+muscle_group is one of: {", ".join(MUSCLE_GROUPS)}.
+equipment is one of: {", ".join(EQUIPMENT)}.
+Use an empty string where a field has nothing to say, and {{"exercises": []}} when there is \
+nothing to list."""
 
-class MissingCredentials(Exception):
-    """No Anthropic API key or login could be found."""
+UNREADABLE_ANSWER = "The model's answer wasn't in the expected format; try again, or pick another model."
+
+
+class ModelError(Exception):
+    """A failure to report to the person using the app; `status` is what /analyze answers with."""
+
+    def __init__(self, status: int, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+        self.message = message
+
+
+@dataclass(frozen=True)
+class ModelChoice:
+    provider: Provider
+    model: str
+    api_key: str | None  # None: none was found (the Anthropic SDK may still find a login of its own)
+    own_key: bool  # the key came with the request rather than from server/.env
+    asked: bool  # the request named the provider, so it came from the app's model settings
 
 
 class AnalyzeRequest(BaseModel):
     url: str
     known_exercises: list[str] = []
+    # All three are optional: without them the analyzer uses what server/.env says.
+    provider: str | None = None
+    model: str | None = None
+    api_key: str | None = Field(default=None, repr=False)
 
 
 def load_env_file() -> None:
@@ -196,64 +277,289 @@ def thumbnail(frames: list[tuple[float, Path]], workdir: Path) -> str | None:
     return "data:image/jpeg;base64," + base64.standard_b64encode(target.read_bytes()).decode("ascii")
 
 
-def identify_exercises(frames: list[tuple[float, Path]], info: dict, known: list[str]) -> list[dict]:
+def default_provider() -> Provider:
+    """What server/.env asks for; otherwise the first service it has a key for; otherwise Claude."""
+    named = os.environ.get("ANALYZER_PROVIDER", "").strip().lower()
+    if named:
+        if named not in PROVIDERS:
+            raise ModelError(500, f"ANALYZER_PROVIDER in server/.env is “{named}”; "
+                                  f"it has to be one of: {', '.join(PROVIDERS)}.")
+        return PROVIDERS[named]
+    for provider in PROVIDERS.values():
+        if os.environ.get(provider.key_env, "").strip():
+            return provider
+    return PROVIDERS["anthropic"]
+
+
+def choose_model(provider_id: str | None = None, model: str | None = None, api_key: str | None = None) -> ModelChoice:
+    """Settles which model answers: what the request asks for wins over server/.env."""
+    provider_id = (provider_id or "").strip().lower()
+    if provider_id and provider_id not in PROVIDERS:
+        raise ModelError(422, f"“{provider_id}” isn't a model service this analyzer knows "
+                              f"(it knows: {', '.join(PROVIDERS)}).")
+    fallback = default_provider()
+    provider = PROVIDERS[provider_id] if provider_id else fallback
+    model = (model or "").strip()
+    if model and not MODEL_NAME.fullmatch(model):
+        raise ModelError(422, "That model name has characters a model name can't have.")
+    if not model and provider is fallback:
+        model = os.environ.get("ANALYZER_MODEL", "").strip()
+    own_key = (api_key or "").strip()
+    return ModelChoice(
+        provider=provider,
+        model=model or provider.default_model,
+        api_key=own_key or os.environ.get(provider.key_env, "").strip() or None,
+        own_key=bool(own_key),
+        asked=bool(provider_id),
+    )
+
+
+def base_url(provider: Provider) -> str:
+    """The chat API's address; ZAI_BASE_URL / OPENROUTER_BASE_URL in server/.env override it."""
+    return (os.environ.get(f"{provider.id.upper()}_BASE_URL", "").strip() or provider.base_url or "").rstrip("/")
+
+
+def http_client() -> httpx.Client:
+    return httpx.Client(timeout=MODEL_TIMEOUT)
+
+
+def missing_key(choice: ModelChoice) -> ModelError:
+    provider = choice.provider
+    message = (f"The analyzer has no {provider.label} API key. "
+               f"Put {provider.key_env}=… in server/.env on the Mac and restart it")
+    if choice.asked:
+        message += ", or enter your own key in the app under Settings → Video model"
+    return ModelError(500, message + ".")
+
+
+def rejected_key(choice: ModelChoice) -> ModelError:
+    if choice.own_key:
+        return ModelError(401, f"{choice.provider.label} rejected your API key — "
+                               "check it in the app under Settings → Video model.")
+    return ModelError(500, f"{choice.provider.label} rejected the analyzer's API key — check server/.env on the Mac.")
+
+
+def frame_data(path: Path) -> str:
+    return base64.standard_b64encode(path.read_bytes()).decode("ascii")
+
+
+def describe_video(info: dict, known: list[str]) -> str:
+    return "\n\n".join([
+        f"Video title: {info.get('title') or '(none)'}",
+        f"Caption:\n{info.get('description') or '(none)'}",
+        "Exercises already in the tracker:\n" + "\n".join(known),
+    ])
+
+
+def ask_claude(choice: ModelChoice, frames: list[tuple[float, Path]], info: dict, known: list[str]) -> tuple[str, str]:
+    """Returns the answer's text and the model that wrote it."""
     content: list[dict] = []
     for seconds, path in frames:
         content.append({"type": "text", "text": f"Frame at {timestamp(seconds)}"})
         content.append({
             "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": "image/jpeg",
-                "data": base64.standard_b64encode(path.read_bytes()).decode("utf-8"),
-            },
+            "source": {"type": "base64", "media_type": "image/jpeg", "data": frame_data(path)},
         })
-    content.append({"type": "text", "text": "\n\n".join([
-        f"Video title: {info.get('title') or '(none)'}",
-        f"Caption:\n{info.get('description') or '(none)'}",
-        "Exercises already in the tracker:\n" + "\n".join(known),
-    ])})
+    content.append({"type": "text", "text": describe_video(info, known)})
 
-    # A refusal is not expected for gym footage, but if the model's safety
-    # classifiers ever misfire the API retries on a fallback model in the same call.
+    request: dict = {
+        "model": choice.model,
+        "max_tokens": 16000,
+        "system": SYSTEM_PROMPT,
+        "output_config": {"effort": "medium", "format": {"type": "json_schema", "schema": RESULT_SCHEMA}},
+        "messages": [{"role": "user", "content": content}],
+    }
+    if choice.model in CLAUDE_SERVER_FALLBACK:
+        # A refusal is not expected for gym footage, but if the model's safety
+        # classifiers ever misfire the API retries on a fallback model in the same call.
+        request.update(betas=["server-side-fallback-2026-07-01"], fallbacks="default")
+
+    label = choice.provider.label
     try:
-        response = anthropic.Anthropic().beta.messages.create(
-            model=MODEL,
-            max_tokens=16000,
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-            system=SYSTEM_PROMPT,
-            output_config={"effort": "medium", "format": {"type": "json_schema", "schema": RESULT_SCHEMA}},
-            messages=[{"role": "user", "content": content}],
-        )
+        # With the analyzer's own key the SDK finds it (or another login) itself.
+        client = anthropic.Anthropic(api_key=choice.api_key) if choice.own_key else anthropic.Anthropic()
+        response = client.beta.messages.create(**request)
     except TypeError as error:
         # With no credentials at all the SDK raises a bare TypeError while building the request.
         if "authentication" in str(error).lower():
-            raise MissingCredentials() from error
+            raise missing_key(choice) from error
         raise
+    except anthropic.AuthenticationError as error:
+        raise rejected_key(choice) from error
+    except anthropic.RateLimitError as error:
+        raise ModelError(429, f"{label}'s rate limit was hit; try again in a minute.") from error
+    except anthropic.APIStatusError as error:
+        raise ModelError(502, f"The AI request failed ({error.status_code}): {error.message[:200]}") from error
+    except anthropic.APIConnectionError as error:
+        raise ModelError(502, f"The analyzer couldn't reach {label}'s API.") from error
     if response.stop_reason == "refusal":
-        raise RuntimeError("The model declined to analyze this video.")
+        raise ModelError(502, "The model declined to analyze this video.")
     if response.stop_reason == "max_tokens":
-        raise RuntimeError("The model's answer was cut off; try again.")
+        raise ModelError(502, "The model's answer was cut off; try again.")
     text = next(block.text for block in response.content if block.type == "text")
+    return text, getattr(response, "model", None) or choice.model
+
+
+def chat_request(choice: ModelChoice, frames: list[tuple[float, Path]], info: dict, known: list[str]) -> dict:
+    """The same question in the OpenAI chat format that Z.ai and OpenRouter both speak."""
+    # Text first, then the images: OpenRouter's advice for how providers parse the parts.
+    content: list[dict] = [{"type": "text", "text": describe_video(info, known)}]
+    for seconds, path in frames:
+        content.append({"type": "text", "text": f"Frame at {timestamp(seconds)}"})
+        content.append({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + frame_data(path)}})
+    content.append({"type": "text", "text": "Now answer with the JSON object and nothing else."})
+    body: dict = {
+        "model": choice.model,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT + "\n\n" + JSON_INSTRUCTIONS},
+            {"role": "user", "content": content},
+        ],
+    }
+    if choice.provider.json_schema:
+        # Enforced by the models that can; OpenRouter drops it for the ones that can't.
+        body["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {"name": "exercises", "strict": True, "schema": RESULT_SCHEMA},
+        }
+    return body
+
+
+def chat_error(choice: ModelChoice, status: int, error: object) -> ModelError:
+    """Turns an error from a chat API into a sentence about what to do."""
+    label = choice.provider.label
+    code, detail = "", ""
+    if isinstance(error, dict):
+        code = str(error.get("code") or "")
+        detail = error.get("message") if isinstance(error.get("message"), str) else ""
+    elif isinstance(error, str):
+        detail = error
+    if choice.api_key:
+        detail = detail.replace(choice.api_key, "…")  # never echo a key back
+    detail = " ".join(detail.split())[:200]
+    if status < 400 and code.isdigit() and 400 <= int(code) < 600:
+        status = int(code)  # OpenRouter reports failures during generation inside a 200 answer
+    note = f" ({detail})" if detail else ""
+    where = "in the app under Settings → Video model" if choice.asked else "(ANALYZER_MODEL) in server/.env"
+
+    if code == "1113" or status == 402:  # Z.ai sends "insufficient balance" as a 429
+        return ModelError(402, f"The {label} account has no credit left.{note}")
+    if code == "1301":
+        return ModelError(502, "The model declined to analyze this video.")
+    if status == 401:
+        return rejected_key(choice)
+    if code == "1211" or status == 404:
+        return ModelError(422, f"{label} has no model called “{choice.model}” — check the name {where}.{note}")
+    if status == 429:
+        return ModelError(429, f"{label}'s rate limit was hit; try again later.{note}")
+    return ModelError(502, f"The AI request failed ({status}): {detail or 'no details given'}")
+
+
+def ask_chat_api(choice: ModelChoice, frames: list[tuple[float, Path]], info: dict, known: list[str]) -> tuple[str, str]:
+    """Returns the answer's text and the model that wrote it."""
+    label = choice.provider.label
+    if not choice.api_key:
+        raise missing_key(choice)
+    try:
+        with http_client() as client:
+            response = client.post(
+                f"{base_url(choice.provider)}/chat/completions",
+                headers={"Authorization": f"Bearer {choice.api_key}"},
+                json=chat_request(choice, frames, info, known),
+            )
+    except httpx.TimeoutException as error:
+        raise ModelError(504, f"{label} took too long to answer; try again, or pick a faster model.") from error
+    except httpx.HTTPError as error:
+        raise ModelError(502, f"The analyzer couldn't reach {label}'s API.") from error
+
+    try:
+        data = response.json()
+    except ValueError:
+        data = None
+    if not isinstance(data, dict):
+        data = {}
+    choices = data.get("choices")
+    first = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+    error = data.get("error") or first.get("error")
+    if response.status_code >= 400 or error:
+        raise chat_error(choice, response.status_code, error)
+
+    finish = first.get("finish_reason")
+    if finish in ("length", "model_context_window_exceeded"):
+        raise ModelError(502, "The model's answer was cut off; try again.")
+    if finish in ("sensitive", "content_filter"):
+        raise ModelError(502, "The model declined to analyze this video.")
+    message = first.get("message") if isinstance(first.get("message"), dict) else {}
+    content = message.get("content")
+    if isinstance(content, list):  # some providers answer in parts
+        content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
+    if not isinstance(content, str) or not content.strip():
+        raise ModelError(502, "The model returned an empty answer; try again, or pick another model.")
+    answered_by = data.get("model")
+    return content, answered_by if isinstance(answered_by, str) and answered_by else choice.model
+
+
+def extract_json(text: str) -> object:
+    """The JSON in a model's answer, allowing for a fence, a preamble or visible thinking around it."""
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
+    candidates = [text]
+    fence = re.search(r"```(?:json)?\s*(.*?)```", text, flags=re.DOTALL | re.IGNORECASE)
+    if fence:
+        candidates.append(fence.group(1))
+    for opener, closer in ("{}", "[]"):
+        start, end = text.find(opener), text.rfind(closer)
+        if 0 <= start < end:
+            candidates.append(text[start:end + 1])
+    for candidate in candidates:
+        try:
+            return json.loads(candidate)
+        except ValueError:
+            continue
+    raise ModelError(502, UNREADABLE_ANSWER)
+
+
+def parse_exercises(text: str, known: list[str]) -> list[dict]:
+    """Reads a model's answer into the list /analyze returns, tolerating what a schema would have prevented."""
+    payload = extract_json(text)
+    if isinstance(payload, dict):
+        # A lone exercise object stands for a list of one.
+        payload = payload["exercises"] if "exercises" in payload else [payload] if "name" in payload else None
+    if not isinstance(payload, list):
+        raise ModelError(502, UNREADABLE_ANSWER)
+
+    def words(value: object) -> str:
+        return value.strip() if isinstance(value, str) else ""
+
+    def one_of(options: list[str], value: object) -> str:
+        key = re.sub(r"[^a-z]", "", words(value).casefold())  # "Full Body", "full_body" → fullBody
+        return next((option for option in options if option.casefold() == key), "other")
 
     known_by_key = {name.casefold(): name for name in known}
     exercises, seen = [], set()
-    for item in json.loads(text)["exercises"]:
-        name = item["name"].strip()
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        name = words(item.get("name"))
         if not name or name.casefold() in seen:
             continue
         seen.add(name.casefold())
         exercises.append({
             "name": name,
             # Only accept a match that really is one of the tracker's names.
-            "library_match": known_by_key.get(item["library_match"].strip().casefold()),
-            "muscle_group": item["muscle_group"],
-            "equipment": item["equipment"],
-            "notes": item["notes"].strip() or None,
-            "sets_reps": item["sets_reps"].strip() or None,
+            "library_match": known_by_key.get(words(item.get("library_match")).casefold()),
+            "muscle_group": one_of(MUSCLE_GROUPS, item.get("muscle_group")),
+            "equipment": one_of(EQUIPMENT, item.get("equipment")),
+            "notes": words(item.get("notes")) or None,
+            "sets_reps": words(item.get("sets_reps")) or None,
         })
     return exercises
+
+
+def identify_exercises(choice: ModelChoice, frames: list[tuple[float, Path]], info: dict,
+                       known: list[str]) -> tuple[list[dict], str]:
+    """The exercises in the frames, and the model that named them."""
+    ask = ask_chat_api if choice.provider.base_url else ask_claude
+    text, answered_by = ask(choice, frames, info, known)
+    return parse_exercises(text, known), answered_by
 
 
 app = FastAPI(title="Gym Tracker video analyzer")
@@ -261,13 +567,90 @@ app = FastAPI(title="Gym Tracker video analyzer")
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True}
+    """`ok` is all the apps need; the rest tells the web version which models it can offer."""
+    providers = []
+    for provider in PROVIDERS.values():
+        try:
+            model = choose_model(provider.id).model
+        except ModelError:
+            model = provider.default_model
+        providers.append({
+            "id": provider.id,
+            "label": provider.label,
+            "default_model": model,
+            "has_key": bool(os.environ.get(provider.key_env, "").strip()),
+        })
+    try:
+        default = default_provider().id
+    except ModelError:
+        default = None
+    return {"ok": True, "default_provider": default, "providers": providers}
+
+
+_openrouter_models: tuple[float, list[dict]] | None = None  # (when fetched, what was fetched)
+
+
+def price_per_million(value: object) -> float | None:
+    try:
+        return float(value) * 1_000_000  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
+def openrouter_models() -> list[dict]:
+    """OpenRouter's current models that take images and answer in text, free ones first."""
+    global _openrouter_models
+    if _openrouter_models and time.monotonic() - _openrouter_models[0] < 3600:
+        return _openrouter_models[1]
+    with http_client() as client:
+        response = client.get(f"{base_url(PROVIDERS['openrouter'])}/models",
+                              params={"input_modalities": "image"}, timeout=10)
+    response.raise_for_status()
+    found = []
+    for item in response.json()["data"]:
+        architecture = item.get("architecture") or {}
+        # Text out and nothing else: image and music generators also list "text".
+        if "image" not in architecture.get("input_modalities", []) or architecture.get("output_modalities") != ["text"]:
+            continue
+        pricing = item.get("pricing") or {}
+        asked, answered = price_per_million(pricing.get("prompt")), price_per_million(pricing.get("completion"))
+        if asked is None or answered is None or asked < 0 or answered < 0:
+            continue  # routers that price per request, not something to pick blind
+        name = item.get("name") or item["id"]
+        cost = "free" if asked == 0 and answered == 0 else f"${asked:.3g} in / ${answered:.3g} out per 1M tokens"
+        found.append((asked + answered, name.casefold(), {"id": item["id"], "label": f"{name} — {cost}"}))
+    models = [option for _, _, option in sorted(found, key=lambda entry: entry[:2])]
+    if models:
+        _openrouter_models = (time.monotonic(), models)
+    return models
+
+
+@app.get("/models")
+def models(provider: str) -> dict:
+    """Model names to offer for a service — a starting point; the app accepts any name."""
+    try:
+        choice = choose_model(provider or "?")
+    except ModelError as error:
+        raise HTTPException(error.status, error.message)
+    options = [{"id": model_id, "label": name} for model_id, name in choice.provider.models]
+    if choice.provider.id == "openrouter":
+        try:
+            options = openrouter_models() or options
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError):
+            pass  # the short built-in list will do
+    return {"provider": choice.provider.id, "default_model": choice.model, "models": options}
 
 
 @app.post("/analyze")
 def analyze(request: AnalyzeRequest) -> dict:
     if not request.url.lower().startswith(("http://", "https://")):
         raise HTTPException(422, "That isn't a web link.")
+    try:
+        choice = choose_model(request.provider, request.model, request.api_key)
+        if choice.provider.base_url and not choice.api_key:
+            raise missing_key(choice)  # before spending a minute on the download
+    except ModelError as error:
+        raise HTTPException(error.status, error.message)
     workdir = Path(tempfile.mkdtemp(prefix="gymtracker-"))
     try:
         try:
@@ -288,25 +671,17 @@ def analyze(request: AnalyzeRequest) -> dict:
             raise HTTPException(502, "The video had no frames to look at.")
 
         try:
-            exercises = identify_exercises(frames, info, request.known_exercises)
-        except MissingCredentials:
-            raise HTTPException(500, "The analyzer has no Anthropic API key. Put ANTHROPIC_API_KEY=… in server/.env on the Mac and restart it.")
-        except anthropic.AuthenticationError:
-            raise HTTPException(500, "Anthropic rejected the analyzer's API key — check server/.env on the Mac.")
-        except anthropic.RateLimitError:
-            raise HTTPException(429, "Anthropic's rate limit was hit; try again in a minute.")
-        except anthropic.APIStatusError as error:
-            raise HTTPException(502, f"The AI request failed ({error.status_code}): {error.message[:200]}")
-        except anthropic.APIConnectionError:
-            raise HTTPException(502, "The analyzer couldn't reach Anthropic's API.")
-        except RuntimeError as error:
-            raise HTTPException(502, str(error))
+            exercises, answered_by = identify_exercises(choice, frames, info, request.known_exercises)
+        except ModelError as error:
+            raise HTTPException(error.status, error.message)
 
         return {
             "title": info.get("title"),
             "caption": (info.get("description") or "")[:2000],
             "thumbnail": thumbnail(frames, workdir),
             "exercises": exercises,
+            "provider": choice.provider.id,
+            "model": answered_by,
         }
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
@@ -347,6 +722,18 @@ def lan_address() -> str | None:
         return None
 
 
+def describe_model() -> str:
+    """One line for the start-up banner: which model answers when the app doesn't choose."""
+    try:
+        choice = choose_model()
+    except ModelError as error:
+        return error.message
+    line = f"{choice.model} from {choice.provider.label}"
+    if not choice.api_key:
+        line += f" — but there is no {choice.provider.key_env} in server/.env yet"
+    return line
+
+
 def serve_web_app() -> bool:
     """Adds the built web version at "/" (after the routes above, which keep priority)."""
     # Only needed when the web app is hosted somewhere else and calls in from
@@ -373,6 +760,7 @@ if __name__ == "__main__":
         address = lan_address()
         if address:
             print(f"(if the phone can't find that name, use http://{address}:{PORT} — it can change when the Mac reconnects)")
+        print(f"Model: {describe_model()}")
         if serve_web_app():
             print(f"Web version: http://localhost:{PORT} on this Mac, or the address above from another device")
         else:

@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, EQUIPMENT, MUSCLE_GROUPS } from './types';
+import { defaultSettings, EQUIPMENT, MUSCLE_GROUPS, normalizeSettings } from './types';
 import type { AppState, BodyWeight, Exercise, ExerciseSuggestion, SavedVideo, SetEntry, Workout, WorkoutEntry } from './types';
 import { toDateInputValue } from './units';
 
@@ -14,7 +14,14 @@ export class BackupError extends Error {}
 export const backupFilename = (now = Date.now()) => `gym-tracker-backup-${toDateInputValue(now)}.json`;
 
 export function exportBackup(state: AppState, now = Date.now()): string {
-  return JSON.stringify({ app: BACKUP_APP, version: BACKUP_VERSION, exportedAt: now, data: state });
+  // API keys stay out: a backup gets emailed, synced and left in download folders.
+  const data: AppState = { ...state, settings: { ...state.settings, apiKeys: defaultSettings().apiKeys } };
+  return JSON.stringify({ app: BACKUP_APP, version: BACKUP_VERSION, exportedAt: now, data });
+}
+
+/** What the app holds after restoring `backup` over `current`: everything from the file, plus this browser's own API keys. */
+export function restoreBackup(current: AppState, backup: Backup): AppState {
+  return { ...backup.state, settings: { ...backup.state.settings, apiKeys: current.settings.apiKeys } };
 }
 
 export interface Backup {
@@ -115,6 +122,7 @@ const readVideo = (raw: Raw): SavedVideo => ({
   thumbnail: strOrNull(raw.thumbnail),
   addedAt: time(raw.addedAt, 'video date'),
   analyzedAt: numOrNull(raw.analyzedAt),
+  analyzedBy: strOrNull(raw.analyzedBy),
   suggestions: list(raw.suggestions ?? [], 'video suggestions', readSuggestion),
 });
 
@@ -133,7 +141,6 @@ export function parseBackup(text: string): Backup {
     throw new BackupError('That backup was made by a newer version of Gym Tracker.');
   }
   const data = parsed.data;
-  const settings = isObject(data.settings) ? data.settings : {};
   const workouts = list(data.workouts, 'workouts', readWorkout);
   // Only one workout can be in progress; a file claiming more gets the extra ones closed.
   let seenActive = false;
@@ -149,11 +156,8 @@ export function parseBackup(text: string): Backup {
       workouts,
       bodyWeights: list(data.bodyWeights, 'body weights', readBodyWeight),
       videos: list(data.videos, 'videos', readVideo),
-      settings: {
-        unit: oneOf(['kg', 'lb'] as const, settings.unit, DEFAULT_SETTINGS.unit),
-        effort: oneOf(['rpe', 'rir'] as const, settings.effort, DEFAULT_SETTINGS.effort),
-        analyzerURL: str(settings.analyzerURL),
-      },
+      // Keys are never taken from a file, whatever it claims to hold.
+      settings: { ...normalizeSettings(data.settings), apiKeys: defaultSettings().apiKeys },
       libraryVersion: numOrNull(data.libraryVersion) ?? 0,
     },
   };

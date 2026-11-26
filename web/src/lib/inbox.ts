@@ -1,4 +1,4 @@
-import { analyze, AnalyzerError, isReachable } from './analyzer';
+import { analyze, AnalyzerError, isReachable, modelChoice } from './analyzer';
 import { getState, signal, update } from './store';
 import { applyAnalysis, saveVideoLink } from './videos';
 
@@ -48,7 +48,7 @@ export async function analyzeVideo(videoId: string): Promise<void> {
   setError(videoId, null);
   try {
     const names = state.exercises.map((exercise) => exercise.name);
-    const result = await analyze(state.settings.analyzerURL, video.url, names);
+    const result = await analyze(state.settings.analyzerURL, video.url, names, modelChoice(state.settings));
     update((draft) => applyAnalysis(draft, videoId, result)); // does nothing if it was deleted meanwhile
     analyzerOnline.set(true);
   } catch (error) {

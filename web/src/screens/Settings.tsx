@@ -1,13 +1,15 @@
 import { CircleCheck, CircleX, Download, FileText, FolderInput, TriangleAlert, Upload } from 'lucide-react';
-import { useRef, useState } from 'react';
-import { isBlockedAsMixedContent, isReachable } from '../lib/analyzer';
-import { backupFilename, BackupError, exportBackup, parseBackup } from '../lib/backup';
+import { useEffect, useRef, useState } from 'react';
+import { analyzerInfo, isBlockedAsMixedContent, isReachable, listModels } from '../lib/analyzer';
+import type { AnalyzerInfo, ModelOption } from '../lib/analyzer';
+import { backupFilename, BackupError, exportBackup, parseBackup, restoreBackup } from '../lib/backup';
 import type { Backup } from '../lib/backup';
 import { analyzerOnline } from '../lib/inbox';
 import { replaceState, update } from '../lib/store';
 import { applyStrongImport, exerciseNames, parseStrongCSV, setCount, StrongFormatError } from '../lib/strong';
 import type { ImportSummary, StrongImport } from '../lib/strong';
-import type { AppState, Settings as SettingsValues, WeightUnit } from '../lib/types';
+import { MODEL_PROVIDER_TITLES, MODEL_PROVIDERS } from '../lib/types';
+import type { AppState, ModelProvider, Settings as SettingsValues, WeightUnit } from '../lib/types';
 import { fmtCount, fmtDate, fmtDateTime } from '../lib/units';
 import { Segmented, Spinner } from '../ui/controls';
 import { LinkRow, Page, Section, ValueRow } from '../ui/layout';
@@ -20,6 +22,106 @@ function changeSettings(patch: Partial<SettingsValues>): void {
   update((draft) => {
     Object.assign(draft.settings, patch);
   });
+}
+
+// What each service is and where its keys come from.
+const PROVIDER_NOTES: Record<ModelProvider, string> = {
+  anthropic: 'Claude models. Keys come from platform.claude.com.',
+  zai: 'GLM models; glm-4.6v-flash is free. Keys come from z.ai, under API Keys.',
+  openrouter: 'Hundreds of models behind one key from openrouter.ai; the free ones have a daily limit.',
+};
+
+/** Choose which model names the exercises in a video, and whose key pays for it. */
+function VideoModel({ settings, checked }: { settings: SettingsValues; checked: number }) {
+  const provider = settings.modelProvider;
+  const [info, setInfo] = useState<AnalyzerInfo | null>(null);
+  const [options, setOptions] = useState<ModelOption[]>([]);
+
+  // Asked when the service changes and after a connection test, not on every
+  // letter typed into the address above.
+  useEffect(() => {
+    let current = true;
+    setOptions([]);
+    if (!provider) return;
+    void analyzerInfo(settings.analyzerURL).then((found) => current && setInfo(found));
+    void listModels(settings.analyzerURL, provider).then((found) => current && setOptions(found));
+    return () => {
+      current = false;
+    };
+  }, [provider, checked]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const known = provider ? info?.providers.find((candidate) => candidate.id === provider) : undefined;
+  const title = provider ? MODEL_PROVIDER_TITLES[provider] : '';
+
+  let footer: React.ReactNode = 'The analyzer decides: Claude, unless its server/.env names another model. Pick a service to choose the model yourself or to use a key of your own.';
+  if (provider) {
+    let warning: string | null = null;
+    if (info && info.providers.length === 0) {
+      warning = 'This analyzer is an older version and ignores the choice — update it and start it again.';
+    } else if (known && !known.hasKey && !settings.apiKeys[provider].trim()) {
+      warning = `The analyzer has no key for ${title}, so it needs yours.`;
+    }
+    footer = (
+      <>
+        {PROVIDER_NOTES[provider]} Your key stays in this browser (backups leave it out) and is sent to your analyzer
+        with each video; leave it empty to use the analyzer’s own.
+        {warning && <span className="error-text" role="status"> {warning}</span>}
+      </>
+    );
+  }
+
+  return (
+    <Section title="Video model" footer={footer}>
+      <label className="row">
+        Service
+        <select
+          className="field"
+          value={provider}
+          onChange={(event) => changeSettings({ modelProvider: event.target.value as ModelProvider | '' })}
+        >
+          <option value="">Analyzer’s choice</option>
+          {MODEL_PROVIDERS.map((id) => <option key={id} value={id}>{MODEL_PROVIDER_TITLES[id]}</option>)}
+        </select>
+      </label>
+      {provider && (
+        <>
+          <label className="row">
+            Model
+            <input
+              className="field right"
+              list="model-suggestions"
+              placeholder={known?.defaultModel ? `Default: ${known.defaultModel}` : 'Default model'}
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              value={settings.models[provider]}
+              onChange={(event) => update((draft) => {
+                draft.settings.models[provider] = event.target.value;
+              })}
+            />
+            <datalist id="model-suggestions">
+              {options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+            </datalist>
+          </label>
+          <label className="row">
+            API key
+            <input
+              className="field right"
+              type="password"
+              placeholder={known?.hasKey ? 'Using the analyzer’s key' : `Your own ${title} key`}
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              value={settings.apiKeys[provider]}
+              onChange={(event) => update((draft) => {
+                draft.settings.apiKeys[provider] = event.target.value;
+              })}
+            />
+          </label>
+        </>
+      )}
+    </Section>
+  );
 }
 
 /** Text of a chosen file; exports from older apps aren't always UTF-8. */
@@ -35,6 +137,7 @@ async function readText(file: File): Promise<string> {
 export function Settings({ state }: { state: AppState }) {
   const { settings } = state;
   const [connection, setConnection] = useState<'unknown' | 'checking' | 'ok' | 'failed'>('unknown');
+  const [checked, setChecked] = useState(0);
   const [backup, setBackup] = useState<Backup | null>(null);
   const [backupNote, setBackupNote] = useState<{ text: string; isError: boolean } | null>(null);
   const backupInput = useRef<HTMLInputElement>(null);
@@ -44,6 +147,7 @@ export function Settings({ state }: { state: AppState }) {
     const online = await isReachable(settings.analyzerURL);
     analyzerOnline.set(online);
     setConnection(online ? 'ok' : 'failed');
+    setChecked((count) => count + 1);
   };
 
   const downloadBackup = () => {
@@ -145,6 +249,8 @@ export function Settings({ state }: { state: AppState }) {
         </button>
       </Section>
 
+      <VideoModel settings={settings} checked={checked} />
+
       {backup && (
         <ConfirmDialog
           title="Replace everything with this backup?"
@@ -153,7 +259,7 @@ export function Settings({ state }: { state: AppState }) {
             label: 'Replace',
             destructive: true,
             run: () => {
-              replaceState(backup.state);
+              replaceState(restoreBackup(state, backup));
               setBackupNote({ text: `Restored ${fmtCount(backup.state.workouts.length, 'workout')} from the backup.`, isError: false });
             },
           }]}

@@ -152,3 +152,88 @@ export const CANNED_ANALYSIS = {
     },
   ],
 };
+
+interface ServiceState {
+  configured: boolean;
+  connected: boolean;
+  account: string | null;
+}
+
+/** The analyzer's side of Strava and Garmin, as the browser tests steer it. */
+export interface ConnectorMock {
+  /** False: every request to the analyzer fails, as when the Mac is out of reach. */
+  online: boolean;
+  services: { strava: ServiceState; garmin: ServiceState };
+  /** What /exports/<target> answers; the default accepts the workout. */
+  answers: Record<string, { status: number; json: unknown }>;
+  /** Garmin wants a verification code before it lets anyone in. */
+  garminNeedsCode: boolean;
+  /** Every workout that was posted, in order. */
+  exports: { target: string; body: { unit: string; effort: string; workout: { id: string; name: string; exercises: { name: string; sets: unknown[] }[] } } }[];
+  /** Every body posted to /garmin/connect. */
+  garminLogins: Record<string, unknown>[];
+}
+
+const ACCOUNT = 'Sam Lifter';
+
+/** Stands in for the analyzer's connections: /connections, /exports/…, /garmin/connect and the two disconnects. */
+export async function mockConnections(page: Page, connected: { strava?: boolean; garmin?: boolean; stravaConfigured?: boolean } = {}): Promise<ConnectorMock> {
+  const mock: ConnectorMock = {
+    online: true,
+    services: {
+      strava: { configured: connected.stravaConfigured ?? true, connected: connected.strava ?? false, account: connected.strava ? ACCOUNT : null },
+      garmin: { configured: true, connected: connected.garmin ?? false, account: connected.garmin ? ACCOUNT : null },
+    },
+    answers: {},
+    garminNeedsCode: false,
+    exports: [],
+    garminLogins: [],
+  };
+  const answer = (route: Parameters<Parameters<Page['route']>[1]>[0], status: number, json: unknown, headers: Record<string, string> = {}) =>
+    (mock.online ? route.fulfill({ status, json, headers }) : route.abort());
+
+  await page.route('**/health', (route) => answer(route, 200, { ok: true }));
+  await page.route('**/connections', (route) => answer(route, 200, mock.services));
+  await page.route(/\/exports\/(strava|garmin)$/, (route) => {
+    if (!mock.online) return route.abort();
+    const target = route.request().url().split('/').pop()!;
+    mock.exports.push({ target, body: JSON.parse(route.request().postData() ?? '{}') });
+    const number = mock.exports.length;
+    const fallback = { status: 200, json: { id: String(number), url: `https://example.org/${target}/activity/${number}`, already: false } };
+    const chosen = mock.answers[target] ?? fallback;
+    return route.fulfill({ status: chosen.status, json: chosen.json });
+  });
+  await page.route(/\/(strava|garmin)\/disconnect$/, (route) => {
+    const target = route.request().url().includes('/strava/') ? 'strava' : 'garmin';
+    mock.services[target] = { ...mock.services[target], connected: false, account: null };
+    return answer(route, 200, mock.services);
+  });
+  await page.route('**/garmin/connect', (route) => {
+    const body = JSON.parse(route.request().postData() ?? '{}') as Record<string, string>;
+    mock.garminLogins.push(body);
+    if (body.mfa_code) {
+      if (body.mfa_code !== '123456') return answer(route, 401, { detail: "Garmin didn't accept the login (Wrong code)." });
+    } else if (body.password !== 'correct-horse') {
+      return answer(route, 401, { detail: "Garmin didn't accept the login (Invalid credentials)." });
+    } else if (mock.garminNeedsCode) {
+      return answer(route, 409, { detail: 'Garmin sent a verification code to your email or phone; enter it to finish.' }, { 'X-Needs-Code': '1' });
+    }
+    mock.services.garmin = { configured: true, connected: true, account: ACCOUNT };
+    return answer(route, 200, mock.services);
+  });
+  return mock;
+}
+
+/** Logs one set of bench press in a new workout and finishes it; ends on the History page. */
+export async function logAndFinishWorkout(page: Page): Promise<void> {
+  await page.goto('/#/');
+  await page.getByRole('button', { name: 'Start Empty Workout' }).click();
+  await addExercise(page, 'bench press', 'Bench Press (Barbell)');
+  const bench = page.getByRole('region', { name: 'Bench Press (Barbell)' });
+  await bench.getByLabel('Weight').first().fill('80');
+  await bench.getByLabel('Reps').first().fill('8');
+  await bench.getByRole('button', { name: 'Mark set as done' }).first().click();
+  await page.getByRole('button', { name: 'Finish' }).click();
+  await page.getByRole('alertdialog', { name: 'Finish workout?' }).getByRole('button', { name: 'Finish' }).click();
+  await expect(page).toHaveURL(/#\/history$/);
+}

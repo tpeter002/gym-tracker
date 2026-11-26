@@ -1,5 +1,6 @@
 import { Check, ChevronDown, CirclePlus, Ellipsis, Plus, SquarePlay } from 'lucide-react';
 import { memo, useMemo, useRef, useState } from 'react';
+import { queueExports, sendWaiting } from '../lib/exports';
 import { goBack, navigate } from '../lib/router';
 import { update } from '../lib/store';
 import { toTryFor } from '../lib/suggestions';
@@ -36,7 +37,11 @@ export function ActiveWorkout({ state, workout }: { state: AppState; workout: Wo
     });
 
   const finish = () => {
-    update((draft) => finishWorkout(draft, workout.id));
+    update((draft) => {
+      finishWorkout(draft, workout.id);
+      queueExports(draft, workout.id); // for the services set to get workouts automatically
+    });
+    void sendWaiting();
     navigate('/history', { replace: true });
   };
 

@@ -18,6 +18,9 @@ Two things it does that the iPhone app doesn't yet:
   — the workout already has an exercise for the same muscle, or at least a third of it is about the same
   part of the body (legs, push, pull). They are offered with one tap each, never added by themselves.
 
+It can also send each finished workout to Strava and Garmin Connect; see "Sending workouts to Strava and
+Garmin Connect" in the main README.
+
 ## Run it
 
 Needs Node 22 or newer (20.19+ also works) and, for the video part, what the analyzer needs
@@ -89,6 +92,7 @@ npm test                               # logic: workouts, Strong import, videos,
 npx playwright install chromium webkit # once
 npm run test:e2e                       # the built app in desktop Chromium and iPhone-sized WebKit
 uv run ../server/test_analyzer.py      # the analyzer's side
+uv run ../server/test_connectors.py    # Strava and Garmin Connect
 ```
 
 The browser tests stand in for the analyzer themselves, so they need neither the Mac service nor an API

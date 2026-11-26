@@ -11,7 +11,7 @@ export class AnalyzerError extends Error {}
  * Where a request goes. With no address set, the analyzer is taken to be the
  * server this page was loaded from — it can serve the app as well.
  */
-export function analyzerEndpoint(address: string, path: 'health' | 'analyze' | 'models', pageURL: string): string {
+export function analyzerEndpoint(address: string, path: string, pageURL: string): string {
   let base = address.trim();
   if (!base) return new URL(path, pageURL).href;
   if (!base.includes('://')) base = `http://${base}`;

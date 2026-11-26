@@ -134,3 +134,13 @@ export function MuscleFilterBar({ value, onChange }: { value: MuscleGroup | null
 }
 
 export const Spinner = () => <span className="spinner" role="status" aria-label="Working" />;
+
+/** An on/off switch at the end of a row; the row's text is its label. */
+export function Switch({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="row">
+      <span className="grow">{label}</span>
+      <input type="checkbox" role="switch" className="switch" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+    </label>
+  );
+}

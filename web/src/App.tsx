@@ -2,6 +2,7 @@ import { Dumbbell, History as HistoryIcon, List, Scale, Settings as SettingsIcon
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { beginWorkout, startConflict } from './lib/actions';
+import { sendWaiting } from './lib/exports';
 import { analyzePending, takeSharedLink } from './lib/inbox';
 import { navigate, useRoute } from './lib/router';
 import { storageStatus, update, useAppState, useSignal } from './lib/store';
@@ -73,8 +74,12 @@ export function App() {
   useEffect(() => {
     const shared = takeSharedLink();
     if (shared) navigate(`/videos/${shared}`);
-    // Videos saved while the analyzer was out of reach get their turn whenever the app comes to the front.
-    const sweep = () => document.visibilityState === 'visible' && void analyzePending();
+    // Videos saved, and workouts finished, while the analyzer was out of reach get their turn whenever the app comes to the front.
+    const sweep = () => {
+      if (document.visibilityState !== 'visible') return;
+      void analyzePending();
+      void sendWaiting();
+    };
     sweep();
     document.addEventListener('visibilitychange', sweep);
     return () => document.removeEventListener('visibilitychange', sweep);

@@ -1,12 +1,15 @@
 import { Ellipsis, History as HistoryIcon, RotateCw } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { requestStart } from '../lib/actions';
+import { connections, loadConnections, sending, sendWorkout } from '../lib/exports';
 import { goBack } from '../lib/router';
-import { update } from '../lib/store';
+import { update, useSignal } from '../lib/store';
+import { EXPORT_TARGET_TITLES, EXPORT_TARGETS } from '../lib/types';
 import type { AppState, SetEntry, WeightUnit, Workout } from '../lib/types';
 import { effortLabel, fmtCount, fmtDateTime, fmtDuration, fmtMonthYear, fmtNumber, fromKg, weightText } from '../lib/units';
 import { deleteWorkout, doneSets, durationSeconds, finishedWorkouts, rowLabels, volumeKg } from '../lib/workouts';
 import { EmptyState, Link, Page, Section, ValueRow } from '../ui/layout';
+import { Spinner } from '../ui/controls';
 import { ConfirmDialog, Menu } from '../ui/overlays';
 import { WorkoutRow } from '../ui/parts';
 
@@ -42,6 +45,55 @@ export const setText = (set: SetEntry, unit: WeightUnit) => {
   const reps = set.reps === null ? '–' : String(set.reps);
   return set.weight === null ? `${reps} reps` : `${weightText(unit, set.weight)} × ${reps}`;
 };
+
+const EXPORT_STATUS = { waiting: 'Waiting to be sent', sent: 'Sent', failed: 'Not sent' } as const;
+
+/** Whether the workout is on Strava and Garmin Connect, with a way to send it or try again. */
+function Sharing({ workout }: { workout: Workout }) {
+  const status = useSignal(connections);
+  const busy = useSignal(sending);
+  // Asked afresh each time: a service may have been connected or dropped since Settings was last open.
+  useEffect(() => {
+    void loadConnections();
+  }, []);
+
+  // Only the services that matter here: connected ones, and ones this workout already has a history with.
+  const targets = EXPORT_TARGETS.filter((target) => workout.exports?.[target] || status?.[target].connected);
+  if (targets.length === 0) return null;
+  const problems = targets.flatMap((target) => {
+    const state = workout.exports?.[target];
+    return state?.error ? [`${EXPORT_TARGET_TITLES[target]}: ${state.error}`] : [];
+  });
+
+  return (
+    <Section title="Sent to" footer={problems.length > 0 && <span className="error-text">{problems.join(' ')}</span>}>
+      {targets.map((target) => {
+        const state = workout.exports?.[target];
+        const name = EXPORT_TARGET_TITLES[target];
+        return (
+          <div key={target} className="row">
+            <span className="grow">
+              {name}
+              {state && <span className="sub">{EXPORT_STATUS[state.status]}</span>}
+            </span>
+            {busy.has(`${workout.id}:${target}`) ? <Spinner /> : (
+              <>
+                {state?.status === 'sent' && state.url && (
+                  <a className="bar-button small" href={state.url} target="_blank" rel="noreferrer" aria-label={`Open on ${name}`}>Open</a>
+                )}
+                {state?.status !== 'sent' && status?.[target].connected && (
+                  <button className="bar-button small" onClick={() => void sendWorkout(workout.id, target)}>
+                    {state ? 'Try Again' : `Send to ${name}`}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })}
+    </Section>
+  );
+}
 
 /** A finished workout in full, with the button to do it again. */
 export function WorkoutDetail({ state, workout }: { state: AppState; workout: Workout }) {
@@ -94,6 +146,8 @@ export function WorkoutDetail({ state, workout }: { state: AppState; workout: Wo
           </Section>
         );
       })}
+
+      <Sharing workout={workout} />
 
       <div className="bottom-bar">
         <button className="btn btn-primary" onClick={() => requestStart({ kind: 'repeat', workoutId: workout.id })}>

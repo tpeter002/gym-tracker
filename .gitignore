@@ -18,6 +18,10 @@ ShareExtension/ShareExtension.entitlements
 
 # Analyzer server
 .venv/
+# Tokens for Strava and Garmin Connect, and the list of workouts already sent
+server/connections.json
+server/connections.tmp
+server/garmin-tokens/
 __pycache__/
 .pytest_cache/
 

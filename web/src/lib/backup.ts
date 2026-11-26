@@ -1,5 +1,5 @@
-import { defaultSettings, EQUIPMENT, MUSCLE_GROUPS, normalizeSettings } from './types';
-import type { AppState, BodyWeight, Exercise, ExerciseSuggestion, SavedVideo, SetEntry, Workout, WorkoutEntry } from './types';
+import { defaultSettings, EQUIPMENT, EXPORT_TARGETS, MUSCLE_GROUPS, normalizeSettings } from './types';
+import type { AppState, BodyWeight, Exercise, ExerciseSuggestion, ExportState, SavedVideo, SetEntry, Workout, WorkoutEntry } from './types';
 import { toDateInputValue } from './units';
 
 // Everything lives in this browser's storage, so a file is the only way to
@@ -90,14 +90,34 @@ const readEntry = (raw: Raw): WorkoutEntry => ({
   sets: list(raw.sets, 'sets', readSet),
 });
 
-const readWorkout = (raw: Raw): Workout => ({
-  id: id(raw, 'workout'),
-  name: str(raw.name),
-  startedAt: time(raw.startedAt, 'workout date'),
-  endedAt: numOrNull(raw.endedAt),
-  notes: str(raw.notes),
-  entries: list(raw.entries, 'workout exercises', readEntry),
-});
+/** Where the workout stands with Strava and Garmin; absent when it was never queued or sent. */
+function readExports(raw: unknown): Workout['exports'] {
+  if (!isObject(raw)) return undefined;
+  const found: NonNullable<Workout['exports']> = {};
+  for (const target of EXPORT_TARGETS) {
+    const item = raw[target];
+    if (!isObject(item)) continue;
+    const state: ExportState = { status: oneOf(['waiting', 'sent', 'failed'] as const, item.status, 'failed'), at: numOrNull(item.at) ?? 0 };
+    if (typeof item.url === 'string' && /^https:\/\//.test(item.url)) state.url = item.url;
+    if (typeof item.error === 'string' && item.error) state.error = item.error;
+    found[target] = state;
+  }
+  return Object.keys(found).length > 0 ? found : undefined;
+}
+
+const readWorkout = (raw: Raw): Workout => {
+  const workout: Workout = {
+    id: id(raw, 'workout'),
+    name: str(raw.name),
+    startedAt: time(raw.startedAt, 'workout date'),
+    endedAt: numOrNull(raw.endedAt),
+    notes: str(raw.notes),
+    entries: list(raw.entries, 'workout exercises', readEntry),
+  };
+  const exports = readExports(raw.exports);
+  if (exports) workout.exports = exports;
+  return workout;
+};
 
 const readBodyWeight = (raw: Raw): BodyWeight => {
   const kg = numOrNull(raw.kg);

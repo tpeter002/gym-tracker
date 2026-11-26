@@ -44,7 +44,7 @@ export default defineConfig({
     // on this machine must not answer in place of the ones they stand in.
     proxy: process.env.GYM_TRACKER_NO_ANALYZER_PROXY
       ? undefined
-      : { '/health': ANALYZER, '/analyze': ANALYZER, '/models': ANALYZER },
+      : Object.fromEntries(['/health', '/analyze', '/models', '/connections', '/exports', '/strava', '/garmin'].map((path) => [path, ANALYZER])),
   },
   test: {
     include: ['tests/unit/**/*.test.ts'],

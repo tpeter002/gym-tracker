@@ -862,6 +862,18 @@ def test_models_for_openrouter_when_it_cannot_be_reached(service, chat):
     assert service.get("/models", params={"provider": "openrouter"}).status_code == 200
 
 
+def test_the_service_also_answers_for_the_strava_and_garmin_connections(monkeypatch, service, tmp_path):
+    monkeypatch.setattr(analyzer.connectors, "STORE", tmp_path / "connections.json")
+    monkeypatch.setattr(analyzer.connectors, "GARMIN_TOKENS", tmp_path / "garmin-tokens")
+    monkeypatch.delenv("STRAVA_CLIENT_ID", raising=False)
+    body = service.get("/connections").json()
+    assert sorted(body) == ["garmin", "strava"]
+    assert body["strava"]["connected"] is False
+    # Not connected: the request is understood and refused, rather than unknown.
+    response = service.post("/exports/strava", json={"workout": {"id": "w", "started_at": 1, "ended_at": 2}})
+    assert response.status_code == 409
+
+
 def test_the_start_up_line_names_the_model(monkeypatch):
     assert analyzer.describe_model() == "claude-opus-5-5 from Anthropic — but there is no ANTHROPIC_API_KEY in server/.env yet"
     monkeypatch.setenv("ZAI_API_KEY", "zai-server")

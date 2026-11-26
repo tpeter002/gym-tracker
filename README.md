@@ -122,10 +122,67 @@ answer formats and were run as far as a made-up key gets (they refuse it, and th
 free model has not returned an analysis yet. How well a given model names exercises is something to try
 on your own videos — **Identify Again** makes that a one-tap comparison.
 
+## Sending workouts to Strava and Garmin Connect
+
+The web version can send a workout to Strava and Garmin Connect when you finish it. The analyzer holds
+the connections and does the sending (`server/connectors.py`); the app queues the workout and shows what
+came of it. Set it up under Settings → Strava / Garmin Connect, then switch on "Send finished workouts
+automatically" for the services you want.
+
+- A workout finished while the analyzer is out of reach waits and goes out the next time the app is
+  opened within reach of it. Each workout is sent to each service once, however often that is retried.
+- Only workouts you finish in the app are sent by themselves. Imported or restored ones never are; any
+  workout can be sent by hand from its page under History.
+- If your Garmin account already forwards activities to Strava, switch automatic sending on for Garmin
+  only, or the workout will appear on Strava twice.
+
+**Strava** uses its official API. Strava's API has no fields for exercises, sets or reps, so the workout
+becomes a Weight Training activity with everything written into the description:
+
+```
+Bench Press (Barbell)
+Warm-up: 40 kg × 10
+Set 1: 87.5 kg × 8 @ RPE 7.5
+Set 2: 87.5 kg × 7
+
+Logged by my own app automatically
+```
+
+You need an API application of your own (Strava requires a subscription to create one):
+
+1. At <https://www.strava.com/settings/api> create an application and set its "Authorization Callback
+   Domain" to `localhost`.
+2. Put its id and secret into `server/.env` as `STRAVA_CLIENT_ID` and `STRAVA_CLIENT_SECRET`, and
+   restart the analyzer.
+3. On the computer the analyzer runs on, open the app at `http://localhost:8787`, go to Settings →
+   Strava → **Connect Strava**, and approve. A new application accepts only your own Strava account
+   until you raise its athlete limit in Strava's dashboard.
+
+**Garmin Connect** has no official way for a personal project to add an activity: its developer
+programme is for approved businesses, and the personal API only reads. What this uses is the upload the
+Garmin Connect website itself has, reached with your own login through the unofficial
+[`garminconnect`](https://github.com/cyberjunky/python-garminconnect) library. That is outside what
+Garmin supports: it can stop working when Garmin changes its sign-in, and using it is your call. Your
+password goes to the analyzer once, is exchanged for tokens (`server/garmin-tokens/`, ignored by git)
+and is not stored. The workout is uploaded as a FIT file — a strength activity with one record per set
+(exercise, reps, weight). The app doesn't record when each set was done, so the sets are spread evenly
+over the workout's duration.
+
+The tokens for both services and the list of what has been sent live in `server/connections.json`, also
+ignored by git. The analyzer has no login of its own, so anyone who can reach it on your network could
+post to these accounts through it: one more reason to run it only on a network you trust.
+
+Tested without either service: Strava against its documented requests and its real refusals, Garmin's
+library with a stand-in and one real sign-in with a made-up account (refused, as it should be), and the
+FIT files by reading them back with Garmin's own FIT SDK. Nothing has been posted to a real Strava or
+Garmin account yet, so how the sets appear in Garmin Connect is still to be seen.
+
 ## Tests
 
 - **Analyzer tests**: `uv run server/test_analyzer.py` — model choice, the requests sent to Claude, Z.ai
   and OpenRouter, reading their answers and errors. They call no outside service.
+- **Connector tests**: `uv run server/test_connectors.py` — connecting, sending and not sending twice,
+  for Strava and Garmin Connect.
 - **Web version**: see [`web/README.md`](web/README.md#tests).
 - **Unit tests** (`GymTracker` scheme, ⌘U): the Strong CSV parser, and the logging / import paths
   against a real in-memory database.

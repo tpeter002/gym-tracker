@@ -1,0 +1,196 @@
+import { CirclePlus, Ellipsis, Plus, SquarePlay } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { deleteExercise, searchExercises } from '../lib/exercises';
+import { goBack } from '../lib/router';
+import { update } from '../lib/store';
+import { equipmentTitle, muscleTitle } from '../lib/types';
+import type { AppState, Exercise, MuscleGroup } from '../lib/types';
+import { effortLabel, fmtDate, fromKg, weightText } from '../lib/units';
+import { webLink } from '../lib/videos';
+import { estimatedOneRepMax, sessionsFor } from '../lib/workouts';
+import { LineChart } from '../ui/Chart';
+import { MuscleFilterBar, SearchField } from '../ui/controls';
+import { LinkRow, Page, Section, ValueRow } from '../ui/layout';
+import { ConfirmDialog, Menu } from '../ui/overlays';
+import { ExerciseLabel } from '../ui/parts';
+import { ExerciseEditor } from './ExerciseEditor';
+import { setText } from './History';
+
+/** The exercise library: built-ins plus your own, searchable. */
+export function Exercises({ state }: { state: AppState }) {
+  const [query, setQuery] = useState('');
+  const [muscle, setMuscle] = useState<MuscleGroup | null>(null);
+  const [showEditor, setShowEditor] = useState(false);
+  const trimmed = query.trim();
+  const results = useMemo(() => searchExercises(state.exercises, query, muscle), [state.exercises, query, muscle]);
+
+  return (
+    <Page
+      title="Exercises"
+      large
+      trailing={
+        <button className="icon-button" aria-label="New exercise" onClick={() => setShowEditor(true)}>
+          <Plus size={24} aria-hidden />
+        </button>
+      }
+    >
+      <SearchField value={query} onChange={setQuery} placeholder="Search exercises" />
+      <MuscleFilterBar value={muscle} onChange={setMuscle} />
+
+      {(results.length > 0 || trimmed !== '') && (
+        <div className="card">
+          {results.map((exercise) => (
+            <LinkRow key={exercise.id} to={`/exercises/${exercise.id}`}>
+              <ExerciseLabel exercise={exercise} />
+            </LinkRow>
+          ))}
+          {/* "Not found" is the moment you want to add your own. */}
+          {trimmed !== '' && (
+            <button className="row accent" onClick={() => setShowEditor(true)}>
+              <CirclePlus size={22} aria-hidden />
+              Create “{trimmed}”
+            </button>
+          )}
+        </div>
+      )}
+      {results.length === 0 && trimmed === '' && <p className="chart-note">Nothing in this muscle group yet.</p>}
+
+      {showEditor && (
+        <ExerciseEditor state={state} suggestedName={trimmed} onClose={() => setShowEditor(false)} onSaved={() => setQuery('')} />
+      )}
+    </Page>
+  );
+}
+
+/** One exercise: where it came from, your records and every time you did it. */
+export function ExerciseDetail({ state, exercise }: { state: AppState; exercise: Exercise }) {
+  const { unit, effort } = state.settings;
+  const [showEditor, setShowEditor] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const sessions = useMemo(() => sessionsFor(state.workouts, exercise.id), [state.workouts, exercise.id]);
+  const workingSets = sessions.flatMap((session) => session.entry.sets).filter((set) => set.isDone && !set.isWarmup);
+  const best = (values: (number | null)[]) => {
+    const numbers = values.filter((value): value is number => value !== null);
+    return numbers.length > 0 ? Math.max(...numbers) : null;
+  };
+  const heaviest = best(workingSets.map((set) => set.weight));
+  const oneRepMax = best(workingSets.map(estimatedOneRepMax));
+  const mostReps = best(workingSets.map((set) => set.reps));
+
+  // Heaviest working set per session, oldest first.
+  const topSets = sessions
+    .map((session) => ({
+      time: session.workout.startedAt,
+      kg: best(session.entry.sets.filter((set) => set.isDone && !set.isWarmup).map((set) => set.weight)),
+    }))
+    .filter((point): point is { time: number; kg: number } => point.kg !== null)
+    .reverse();
+  const video = webLink(exercise.videoURL);
+
+  return (
+    <Page
+      title={exercise.name}
+      back="/exercises"
+      trailing={
+        <Menu
+          className="bar-button"
+          label="Exercise options"
+          items={[
+            { label: 'Edit', run: () => setShowEditor(true) },
+            { label: 'Delete Exercise', destructive: true, run: () => setConfirmDelete(true) },
+          ]}
+        >
+          <Ellipsis size={24} aria-hidden />
+        </Menu>
+      }
+    >
+      <Section footer="Exercises marked “Want to try” are listed first when you add exercises to a workout.">
+        <ValueRow label="Muscle group" value={muscleTitle(exercise.muscle)} />
+        <ValueRow label="Equipment" value={equipmentTitle(exercise.equipment)} />
+        {video && (
+          <a className="row accent" href={video} target="_blank" rel="noreferrer">
+            <SquarePlay size={22} aria-hidden />
+            Watch Video
+          </a>
+        )}
+        <label className="row">
+          Want to try
+          <input
+            className="switch"
+            type="checkbox"
+            role="switch"
+            checked={exercise.wantToTry}
+            onChange={(event) => update((draft) => {
+              const target = draft.exercises.find((candidate) => candidate.id === exercise.id);
+              if (target) target.wantToTry = event.target.checked;
+            })}
+          />
+        </label>
+      </Section>
+
+      {exercise.notes && (
+        <Section title="Notes">
+          <div className="row prewrap">{exercise.notes}</div>
+        </Section>
+      )}
+
+      {workingSets.length > 0 && (
+        <Section title="Records">
+          {heaviest !== null && <ValueRow label="Heaviest weight" value={weightText(unit, heaviest)} />}
+          {oneRepMax !== null && <ValueRow label="Estimated 1RM" value={weightText(unit, oneRepMax)} />}
+          {mostReps !== null && <ValueRow label="Most reps" value={mostReps} />}
+          <ValueRow label="Sessions" value={sessions.length} />
+        </Section>
+      )}
+
+      {topSets.length > 1 && (
+        <Section title={`Top set · ${unit}`}>
+          <div className="chart-block">
+            <LineChart
+              label={`Heaviest set of ${exercise.name} per session`}
+              unit={unit}
+              points={topSets.map((point) => ({ time: point.time, value: fromKg(unit, point.kg) }))}
+            />
+          </div>
+        </Section>
+      )}
+
+      {sessions.length === 0 && (
+        <Section title="History">
+          <div className="row secondary">You haven't done this exercise yet.</div>
+        </Section>
+      )}
+      {sessions.map(({ workout, entry }) => (
+        <Section key={entry.id} title={`${fmtDate(workout.startedAt)} · ${workout.name}`}>
+          {entry.sets.filter((set) => set.isDone).map((set) => (
+            <div key={set.id} className="row numeric">
+              <span>{setText(set, unit)}</span>
+              {set.isWarmup && <span className="warm caption">warm-up</span>}
+              {set.rpe !== null && <span className="row-value small">{effortLabel(effort, set.rpe)}</span>}
+            </div>
+          ))}
+        </Section>
+      ))}
+
+      {showEditor && <ExerciseEditor state={state} exercise={exercise} onClose={() => setShowEditor(false)} />}
+      {confirmDelete && (
+        <ConfirmDialog
+          title={`Delete “${exercise.name}”?`}
+          message={sessions.length === 0
+            ? 'It will be removed from your exercise list.'
+            : "Past workouts keep their sets, but this exercise's records and history page go away."}
+          actions={[{
+            label: 'Delete Exercise',
+            destructive: true,
+            run: () => {
+              update((draft) => deleteExercise(draft, exercise.id));
+              goBack('/exercises');
+            },
+          }]}
+          onClose={() => setConfirmDelete(false)}
+        />
+      )}
+    </Page>
+  );
+}

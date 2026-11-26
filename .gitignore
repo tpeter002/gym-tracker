@@ -1,3 +1,8 @@
+# Secrets and local settings — never commit these. The example file documents what goes in them.
+.env
+.env.*
+!.env.example
+
 # Xcode
 *.xcodeproj
 xcuserdata/
@@ -12,8 +17,9 @@ ShareExtension/Info.plist
 ShareExtension/ShareExtension.entitlements
 
 # Analyzer server
-server/.env
-server/.venv/
+.venv/
 __pycache__/
+.pytest_cache/
 
+# macOS
 .DS_Store

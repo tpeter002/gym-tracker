@@ -56,8 +56,8 @@ The link is picked up the next time you open Gym Tracker — the share sheet onl
 it over Wi-Fi.
 
 ```sh
-brew install ffmpeg uv                               # once
-echo 'ANTHROPIC_API_KEY=sk-ant-...' > server/.env    # once
+brew install ffmpeg uv                    # once
+cp server/.env.example server/.env        # once — then put an API key in it (see "Choosing the model")
 uv run server/analyzer.py
 ```
 
@@ -81,7 +81,7 @@ stay removed.
 
 The analyzer can ask Claude, [Z.ai](https://z.ai)'s GLM models, any image-reading model on
 [OpenRouter](https://openrouter.ai), or Google's Gemini. Put the key of the service you want in
-`server/.env`:
+`server/.env` (git ignores that file; `server/.env.example` is the template):
 
 ```sh
 ANTHROPIC_API_KEY=sk-ant-...    # Claude; claude-opus-5-5 unless ANALYZER_MODEL says otherwise

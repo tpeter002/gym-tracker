@@ -44,8 +44,8 @@ from pydantic import BaseModel, Field
 
 PORT = int(os.environ.get("PORT", "8787"))
 MODEL_TIMEOUT = 200  # seconds for the model's answer; the apps give a whole analysis 240
-# Free models are often full for a moment: how long to wait before each further try.
-OVERLOAD_WAITS = (2, 5, 10)
+# Seconds before a busy model is asked one more time, when there is no other model to ask.
+RETRY_WAIT = 5
 MAX_VIDEO_SECONDS = 10 * 60  # this is for reels and shorts, not full workout vlogs
 MAX_FRAMES = 24
 MIN_FRAME_INTERVAL = 1.5  # seconds; denser sampling adds cost without adding exercises
@@ -543,44 +543,38 @@ def chat_text(model: str, data: dict, first: dict) -> tuple[str, str]:
 def ask_chat_api(choice: ModelChoice, frames: list[tuple[float, Path]], info: dict, known: list[str]) -> tuple[str, str]:
     """Returns the answer's text and the model that wrote it.
 
-    A model that is busy is asked again after a pause. From the second round on
-    the provider's fallback models are asked as well, and a model that is out of
-    quota or fails some other way leaves the rotation. If nobody answers, the
-    failure reported is the chosen model's.
+    Free tiers count every request, answered or not — Gemini allows 20 a day per
+    model — so a busy model is not asked over and over. When the provider has
+    fallback models, each model is asked once, in order, until one answers; when
+    it has none, the chosen model gets one more try after a pause. If nobody
+    answers, the failure reported is the chosen model's.
     """
     if not choice.api_key:
         raise missing_key(choice)
     body = chat_request(choice, frames, info, known)
     deadline = now() + MODEL_TIMEOUT
-    rotation = [choice.model]
     spares = [model for model in choice.provider.fallbacks if model != choice.model]
-    asked_spares = False
+    attempts = [choice.model, *spares] if spares else [choice.model, choice.model]
     failure: ModelError | None = None
 
-    for wait in (0, *OVERLOAD_WAITS):
-        if wait:
-            if now() + wait + 30 > deadline:
-                break  # no time left for another round within what the apps wait for
-            time.sleep(wait)
-            rotation, spares, asked_spares = rotation + spares, [], asked_spares or bool(spares)
-        for model in list(rotation):
-            status, data, first, error = chat_attempt(choice, model, body, deadline)
-            if status < 400 and not error:
-                return chat_text(model, data, first)
-            problem = chat_error(choice, status, error)
-            busy = is_worth_retrying(status, error)
-            if model == choice.model:
-                failure = problem
-                out_of_quota = problem.status == 429
-                if not busy and not (out_of_quota and choice.provider.fallbacks):
-                    raise problem  # nothing that waiting or another model would fix
-            if not busy:
-                rotation.remove(model)
-        if not rotation and not spares:
-            break
+    for index, model in enumerate(attempts):
+        if index:
+            if now() + 30 > deadline:
+                break  # no time left for another answer within what the apps wait for
+            if not spares:
+                time.sleep(RETRY_WAIT)
+        status, data, first, error = chat_attempt(choice, model, body, deadline)
+        if status < 400 and not error:
+            return chat_text(model, data, first)
+        if model == choice.model:
+            failure = chat_error(choice, status, error)
+            out_of_quota = failure.status == 429
+            if not is_worth_retrying(status, error) and not (out_of_quota and spares):
+                raise failure  # nothing that another try or another model would fix
+        # A fallback's own failure is not reported: it was only standing in.
 
     assert failure is not None  # the chosen model is always asked first
-    if asked_spares:
+    if spares:
         failure = ModelError(failure.status, f"{failure.message} The models tried in its place didn't answer either.")
     raise failure
 

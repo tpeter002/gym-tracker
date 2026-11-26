@@ -98,14 +98,16 @@ order above is. The line the analyzer prints at start-up says which model it wil
 
 What costs nothing, as of November 2026:
 
-- **Gemini** — the Flash models have a free daily allowance (your project's limits are shown in Google AI
-  Studio). They take turns being "in high demand"; the analyzer then asks the next Flash model, and the
-  video shows which one answered. Google uses free-tier requests to improve its products, and its terms
-  allow only the paid tier for apps offered to users in the EEA, Switzerland and the UK.
+- **Gemini** — on the free tier each Flash model allows 5 requests a minute and 20 a day, each Flash-Lite
+  model 15 and 500 (as Google AI Studio showed for a new project on 26 November 2026; yours are under
+  "Rate limit" there). Requests answered with "high demand" count too, and the models take turns being
+  in high demand, so the analyzer asks each Flash model at most once per video, in order, until one
+  answers; the video shows which one did. Google uses free-tier requests to improve its products, and
+  its terms allow only the paid tier for apps offered to users in the EEA, Switzerland and the UK.
 - **OpenRouter** — models whose name ends in `:free`, and `openrouter/free`; 50 requests a day, 1,000 once
   the account has ever bought $10 of credit.
 - **Z.ai** — `glm-4.6v-flash` is listed as free, but on the day this was written it answered every request
-  with "temporarily overloaded". The analyzer retries a few times and then says so.
+  with "temporarily overloaded". The analyzer asks once more after a few seconds and then says so.
 
 The web version can also choose for itself, per browser: Settings → Video model sets the service and the
 model, and optionally a key of your own that is sent along with each video instead of the analyzer's.

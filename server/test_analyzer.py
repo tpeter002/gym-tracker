@@ -464,11 +464,14 @@ def test_gemini_errors_become_instructions(chat, frames, status, reply, expected
     assert (failure.status, failure.message) == (expected_status, expected)
 
 
-def test_gemini_being_overloaded_is_retried(chat, frames, waits):
-    chat.queue = [(503, [{"error": {"code": 503, "message": "The model is overloaded. Please try again later.", "status": "UNAVAILABLE"}}])]
-    chat.reply = chat.completion(ANSWER)
-    assert analyzer.identify_exercises(analyzer.choose_model("gemini", api_key="k"), frames, INFO, KNOWN)[0] == EXERCISES
-    assert waits == [2]
+def test_an_answer_at_the_first_try_costs_one_request(chat, frames, waits):
+    for provider in analyzer.PROVIDERS.values():
+        if not provider.base_url:
+            continue
+        chat.requests.clear()
+        analyzer.identify_exercises(analyzer.choose_model(provider.id, api_key="k"), frames, INFO, KNOWN)
+        assert len(chat.requests) == 1, provider.id
+    assert waits == []
 
 
 GEMINI_BUSY = (503, [{"error": {"code": 503, "message": "This model is currently experiencing high demand.", "status": "UNAVAILABLE"}}])
@@ -481,20 +484,14 @@ def gemini(frames, model=None):
     return analyzer.identify_exercises(analyzer.choose_model("gemini", model, "k"), frames, INFO, KNOWN)
 
 
-def test_a_busy_model_gets_a_second_chance_before_others_are_asked(chat, frames, waits):
-    chat.queue = [GEMINI_BUSY]
-    assert gemini(frames) == (EXERCISES, "gemini-3.8-flash")
-    assert chat.models_asked == ["gemini-3.8-flash", "gemini-3.8-flash"]
-    assert waits == [2]
-
-
-def test_while_a_model_stays_busy_the_next_free_one_answers(chat, frames, waits):
+def test_when_a_model_is_busy_the_next_free_one_is_asked_straight_away(chat, frames, waits):
     chat.by_model = {"gemini-3.8-flash": GEMINI_BUSY}
     exercises, answered_by = gemini(frames)
     assert exercises == EXERCISES
     assert answered_by == "gemini-3-flash-preview"  # and the app shows that name
-    assert chat.models_asked == ["gemini-3.8-flash", "gemini-3.8-flash", "gemini-3-flash-preview"]
-    assert waits == [2]
+    # Gemini's free tier allows 20 requests a day per model: the busy one is not asked twice.
+    assert chat.models_asked == ["gemini-3.8-flash", "gemini-3-flash-preview"]
+    assert waits == []
 
 
 def test_a_model_out_of_quota_is_not_asked_again_but_the_others_are(chat, frames, waits):
@@ -506,7 +503,7 @@ def test_a_model_out_of_quota_is_not_asked_again_but_the_others_are(chat, frames
 def test_a_fallback_that_fails_for_its_own_reasons_is_skipped_quietly(chat, frames, waits):
     chat.by_model = {"gemini-3.8-flash": GEMINI_BUSY, "gemini-3-flash-preview": GEMINI_GONE, "gemini-4-hydrogen": GEMINI_BUSY}
     assert gemini(frames)[1] == "gemini-3.6-flash"
-    assert chat.models_asked == ["gemini-3.8-flash", "gemini-3.8-flash", "gemini-3-flash-preview", "gemini-4-hydrogen", "gemini-3.6-flash"]
+    assert chat.models_asked == ["gemini-3.8-flash", "gemini-3-flash-preview", "gemini-4-hydrogen", "gemini-3.6-flash"]
 
 
 def test_when_every_model_is_busy_the_chosen_ones_failure_is_reported(chat, frames, waits):
@@ -515,14 +512,14 @@ def test_when_every_model_is_busy_the_chosen_ones_failure_is_reported(chat, fram
     assert (failure.status, failure.message) == (
         503, "Google says gemini-3.8-flash is overloaded right now; try again later, or pick another model. "
              "(This model is currently experiencing high demand.) The models tried in its place didn't answer either.")
-    assert chat.models_asked == ["gemini-3.8-flash", *GEMINI_FLASH * 3]
-    assert waits == [2, 5, 10]
+    assert chat.models_asked == GEMINI_FLASH  # one request per model, and no more
+    assert waits == []
 
 
 def test_a_chosen_model_outside_the_fallback_list_is_still_asked_first(chat, frames, waits):
     chat.by_model = {"gemini-3.5-flash-lite": GEMINI_BUSY}
     assert gemini(frames, "gemini-3.5-flash-lite")[1] == "gemini-3.8-flash"
-    assert chat.models_asked == ["gemini-3.5-flash-lite", "gemini-3.5-flash-lite", "gemini-3.8-flash"]
+    assert chat.models_asked == ["gemini-3.5-flash-lite", "gemini-3.8-flash"]
 
 
 def test_a_rejected_key_ends_it_at_once_fallbacks_or_not(chat, frames, waits):
@@ -554,7 +551,7 @@ def test_it_gives_up_before_the_apps_stop_waiting(monkeypatch, chat, frames, wai
     chat.status, chat.reply = GEMINI_BUSY
     failure = chat_failure(chat, frames, "gemini")
     assert failure.status == 503
-    assert len(chat.requests) < 8 and len(waits) < 3
+    assert len(chat.requests) < len(GEMINI_FLASH)
 
 
 def test_the_address_of_a_chat_api_can_be_changed_in_the_env_file(monkeypatch, chat, frames):
@@ -641,13 +638,13 @@ def test_openrouter_errors_inside_a_successful_answer_are_noticed(chat, frames):
 ZAI_OVERLOADED = (429, {"error": {"code": "1305", "message": "The service may be temporarily overloaded, please try again later"}})
 
 
-def test_an_overloaded_model_is_asked_again(chat, frames, waits):
-    chat.queue = [ZAI_OVERLOADED, ZAI_OVERLOADED]
+def test_an_overloaded_model_is_asked_once_more(chat, frames, waits):
+    chat.queue = [ZAI_OVERLOADED]
     exercises, _ = analyzer.identify_exercises(analyzer.choose_model("zai", api_key="k"), frames, INFO, KNOWN)
     assert exercises == EXERCISES
-    assert len(chat.requests) == 3
-    assert waits == [2, 5]
-    assert chat.requests[0].content == chat.requests[2].content  # the same question each time
+    assert len(chat.requests) == 2
+    assert waits == [5]
+    assert chat.requests[0].content == chat.requests[1].content  # the same question both times
 
 
 def test_a_model_that_stays_overloaded_is_reported_as_that(chat, frames, waits):
@@ -656,8 +653,8 @@ def test_a_model_that_stays_overloaded_is_reported_as_that(chat, frames, waits):
     assert (failure.status, failure.message) == (
         503, "Z.ai says glm-4.6v-flash is overloaded right now; try again later, or pick another model. "
              "(The service may be temporarily overloaded, please try again later)")
-    assert len(chat.requests) == 4
-    assert waits == [2, 5, 10]
+    assert len(chat.requests) == 2  # every request counts against a free tier's daily allowance
+    assert waits == [5]
 
 
 @pytest.mark.parametrize("status, reply", [
@@ -668,7 +665,7 @@ def test_a_model_that_stays_overloaded_is_reported_as_that(chat, frames, waits):
 def test_openrouter_being_busy_is_also_retried(chat, frames, waits, status, reply):
     chat.queue = [(status, reply)]
     assert analyzer.identify_exercises(analyzer.choose_model("openrouter", api_key="k"), frames, INFO, KNOWN)[0] == EXERCISES
-    assert waits == [2]
+    assert waits == [5]
 
 
 def test_other_failures_are_not_retried(chat, frames, waits):

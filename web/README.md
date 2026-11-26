@@ -18,8 +18,8 @@ Two things it does that the iPhone app doesn't yet:
   — the workout already has an exercise for the same muscle, or at least a third of it is about the same
   part of the body (legs, push, pull). They are offered with one tap each, never added by themselves.
 
-It can also send each finished workout to Strava and Garmin Connect; see "Sending workouts to Strava and
-Garmin Connect" in the main README.
+It can also send each finished workout to Strava and Garmin Connect; see
+[the analyzer's README](../server/README.md#sending-workouts-to-strava-and-garmin-connect).
 
 ## Run it
 
@@ -72,7 +72,7 @@ Saved Videos → **+**, then paste the link (text around it is fine). With the a
 is identified straight away and its exercises go onto the to-try list; otherwise it happens the next
 time the app is open and the analyzer answers.
 
-Which model names the exercises is the analyzer's choice (see the main README) unless you make it here:
+Which model names the exercises is the analyzer's choice (see [its README](../server/README.md#choosing-the-model)) unless you make it here:
 **Settings → Video model** picks the service — Claude, Z.ai, OpenRouter or Gemini — and the model, with
 suggestions from the analyzer (for OpenRouter, its current list with prices, free ones first). Leave the
 key field empty to use the key the analyzer has, or enter your own. Each saved video shows which model

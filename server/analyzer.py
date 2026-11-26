@@ -53,7 +53,7 @@ MAX_FRAMES = 24
 MIN_FRAME_INTERVAL = 1.5  # seconds; denser sampling adds cost without adding exercises
 WEB_APP = Path(__file__).resolve().parent.parent / "web" / "dist"
 
-# Must stay in step with MuscleGroup / Equipment in GymTracker/Models/Models.swift
+# Must stay in step with MuscleGroup / Equipment in ios/GymTracker/Models/Models.swift
 # and MUSCLE_GROUPS / EQUIPMENT in web/src/lib/types.ts.
 MUSCLE_GROUPS = ["chest", "back", "shoulders", "biceps", "triceps", "forearms", "core", "quads",
                  "hamstrings", "glutes", "calves", "fullBody", "cardio", "other"]

@@ -79,30 +79,42 @@ stay removed.
 
 ### Choosing the model
 
-The analyzer can ask Claude, [Z.ai](https://z.ai)'s GLM models, or any image-reading model on
-[OpenRouter](https://openrouter.ai). Put the key of the service you want in `server/.env`:
+The analyzer can ask Claude, [Z.ai](https://z.ai)'s GLM models, any image-reading model on
+[OpenRouter](https://openrouter.ai), or Google's Gemini. Put the key of the service you want in
+`server/.env`:
 
 ```sh
 ANTHROPIC_API_KEY=sk-ant-...    # Claude; claude-opus-5-5 unless ANALYZER_MODEL says otherwise
 ZAI_API_KEY=...                 # Z.ai; glm-4.6v-flash (free) by default
 OPENROUTER_API_KEY=sk-or-...    # OpenRouter; openrouter/free by default, which picks a free model
+GEMINI_API_KEY=AIza...          # Google AI Studio; gemini-3.8-flash by default, which has a free tier
 
-ANALYZER_PROVIDER=zai           # anthropic, zai or openrouter — only needed with more than one key
+ANALYZER_PROVIDER=zai           # anthropic, zai, openrouter or gemini — only needed with more than one key
 ANALYZER_MODEL=glm-5.3-flash    # optional: another model of that service
 ```
 
-With one key, that service is used; with several and no `ANALYZER_PROVIDER`, Claude is. The line the
-analyzer prints at start-up says which model it will ask.
+With one key, that service is used; with several and no `ANALYZER_PROVIDER`, the first of them in the
+order above is. The line the analyzer prints at start-up says which model it will ask.
+
+What costs nothing, as of November 2026:
+
+- **Gemini** — the Flash models have a free daily allowance (your project's limits are shown in Google AI
+  Studio). Google uses free-tier requests to improve its products, and its terms allow only the paid tier
+  for apps offered to users in the EEA, Switzerland and the UK.
+- **OpenRouter** — models whose name ends in `:free`, and `openrouter/free`; 50 requests a day, 1,000 once
+  the account has ever bought $10 of credit.
+- **Z.ai** — `glm-4.6v-flash` is listed as free, but on the day this was written it answered every request
+  with "temporarily overloaded". The analyzer retries a few times and then says so.
 
 The web version can also choose for itself, per browser: Settings → Video model sets the service and the
 model, and optionally a key of your own that is sent along with each video instead of the analyzer's.
 The iPhone app has no such setting and uses whatever the analyzer is set to. A saved video shows which
 model identified it.
 
-Z.ai and OpenRouter are covered by tests against their documented request and answer formats, and were
-run against the real services as far as a made-up key gets (they refuse it, and the app says so). No
-real analysis has been run through them yet, so how well a given model names exercises is something to
-try on your own videos — **Identify Again** makes that a one-tap comparison.
+Z.ai, OpenRouter and Gemini are covered by tests against their documented request and answer formats,
+and were run against the real services as far as a made-up key gets (they refuse it, and the app says
+so). No real analysis has come back from any of them yet, so how well a given model names exercises is
+something to try on your own videos — **Identify Again** makes that a one-tap comparison.
 
 ## Tests
 

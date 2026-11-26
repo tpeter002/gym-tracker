@@ -96,7 +96,7 @@ class Provider:
     json_schema: bool = False  # whether that chat API takes response_format: json_schema
 
 
-# The first one is the default when server/.env names none and holds no other key.
+# In this order: when server/.env names no service, the first one it has a key for is used.
 PROVIDERS = {provider.id: provider for provider in (
     Provider("anthropic", "Anthropic", "ANTHROPIC_API_KEY", "claude-opus-5-5", (
         ("claude-opus-5-5", "Claude Opus 5.5"),
@@ -116,6 +116,14 @@ PROVIDERS = {provider.id: provider for provider in (
     Provider("openrouter", "OpenRouter", "OPENROUTER_API_KEY", "openrouter/free", (
         ("openrouter/free", "Free Models Router — picks a free model that reads images"),
     ), base_url="https://openrouter.ai/api/v1", json_schema=True),
+    # Google's OpenAI-style endpoint. These models have a free tier (ai.google.dev pricing,
+    # November 2026). No response_format: Gemini's schema dialect differs from RESULT_SCHEMA's.
+    Provider("gemini", "Google", "GEMINI_API_KEY", "gemini-3.8-flash", (
+        ("gemini-3.8-flash", "Gemini 3.8 Flash — free tier"),
+        ("gemini-4-hydrogen", "Gemini 4 Hydrogen — free tier"),
+        ("gemini-3.6-flash", "Gemini 3.6 Flash — free tier"),
+        ("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite — free tier"),
+    ), base_url="https://generativelanguage.googleapis.com/v1beta/openai"),
 )}
 
 # Server-side fallback after a refusal exists on these only (Haiku 5.5 has none).
@@ -461,7 +469,8 @@ def chat_error(choice: ModelChoice, status: int, error: object) -> ModelError:
         return ModelError(402, f"The {label} account has no credit left.{note}")
     if code == "1301":
         return ModelError(502, "The model declined to analyze this video.")
-    if status == 401:
+    # Google answers a bad key with a 400 ("Please pass a valid API key"), not a 401.
+    if status == 401 or (status in (400, 403) and re.search(r"api key|authorization header", detail, re.IGNORECASE)):
         return rejected_key(choice)
     if code == "1211" or status == 404:
         return ModelError(422, f"{label} has no model called “{choice.model}” — check the name {where}.{note}")
@@ -496,6 +505,8 @@ def ask_chat_api(choice: ModelChoice, frames: list[tuple[float, Path]], info: di
             data = response.json()
         except ValueError:
             data = None
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            data = data[0]  # Google wraps its errors in a list
         if not isinstance(data, dict):
             data = {}
         choices = data.get("choices")

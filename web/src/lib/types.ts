@@ -26,13 +26,14 @@ export type WeightUnit = 'kg' | 'lb';
 export type EffortScale = 'rpe' | 'rir';
 
 /** Services whose models can name the exercises in a video; the analyzer knows the same ids. */
-export const MODEL_PROVIDERS = ['anthropic', 'zai', 'openrouter'] as const;
+export const MODEL_PROVIDERS = ['anthropic', 'zai', 'openrouter', 'gemini'] as const;
 export type ModelProvider = (typeof MODEL_PROVIDERS)[number];
 
 export const MODEL_PROVIDER_TITLES: Record<ModelProvider, string> = {
   anthropic: 'Claude (Anthropic)',
   zai: 'Z.ai (GLM)',
   openrouter: 'OpenRouter',
+  gemini: 'Gemini (Google)',
 };
 
 // All times are milliseconds since the epoch.

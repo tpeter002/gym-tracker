@@ -59,7 +59,7 @@ is identified straight away and its exercises go onto the to-try list; otherwise
 time the app is open and the analyzer answers.
 
 Which model names the exercises is the analyzer's choice (see the main README) unless you make it here:
-**Settings → Video model** picks the service — Claude, Z.ai or OpenRouter — and the model, with
+**Settings → Video model** picks the service — Claude, Z.ai, OpenRouter or Gemini — and the model, with
 suggestions from the analyzer (for OpenRouter, its current list with prices, free ones first). Leave the
 key field empty to use the key the analyzer has, or enter your own. Each saved video shows which model
 identified it, and **Identify Again** asks whichever model is selected now.

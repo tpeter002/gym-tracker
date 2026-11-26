@@ -19,6 +19,8 @@ export default defineConfig({
     command: `npm run build && npm run preview -- --port ${PORT} --strictPort`,
     url: `http://localhost:${PORT}`,
     reuseExistingServer: false,
+    // See vite.config.ts: keeps a real analyzer on this machine out of the tests.
+    env: { GYM_TRACKER_NO_ANALYZER_PROXY: '1' },
   },
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'] } },

@@ -16,7 +16,7 @@ test('until you pick a service, the request is the one every analyzer understand
   const requests = await mockModelAnalyzer(page);
   await page.goto('/#/settings');
   await expect(service(page)).toHaveValue('');
-  await expect(service(page).locator('option')).toHaveText(['Analyzer’s choice', 'Claude (Anthropic)', 'Z.ai (GLM)', 'OpenRouter']);
+  await expect(service(page).locator('option')).toHaveText(['Analyzer’s choice', 'Claude (Anthropic)', 'Z.ai (GLM)', 'OpenRouter', 'Gemini (Google)']);
   await expect(model(page)).toHaveCount(0);
   await expect(apiKey(page)).toHaveCount(0);
 
@@ -106,7 +106,7 @@ test('a backup carries the model choice but never the key', async ({ page, brows
   expect(JSON.parse(text).data.settings).toMatchObject({
     modelProvider: 'openrouter',
     models: { openrouter: 'qwen/qwen3.8-flash' },
-    apiKeys: { anthropic: '', zai: '', openrouter: '' },
+    apiKeys: { anthropic: '', zai: '', openrouter: '', gemini: '' },
   });
   const file = { name: saved.suggestedFilename(), mimeType: 'application/json', buffer: Buffer.from(text) };
 

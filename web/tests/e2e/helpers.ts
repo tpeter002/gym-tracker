@@ -100,6 +100,7 @@ export const ANALYZER_SERVICES = {
     { id: 'anthropic', label: 'Anthropic', default_model: 'claude-opus-5-5', has_key: true },
     { id: 'zai', label: 'Z.ai', default_model: 'glm-4.6v-flash', has_key: false },
     { id: 'openrouter', label: 'OpenRouter', default_model: 'openrouter/free', has_key: false },
+    { id: 'gemini', label: 'Google', default_model: 'gemini-3.8-flash', has_key: false },
   ],
 };
 

@@ -8,7 +8,7 @@ import { applyAnalysis, saveVideoLink } from '../../src/lib/videos';
 // Choosing the model that names a video's exercises: the settings behind it,
 // what goes to the analyzer, and what must never leave the browser.
 
-const NO_KEYS = { anthropic: '', zai: '', openrouter: '' };
+const NO_KEYS = { anthropic: '', zai: '', openrouter: '', gemini: '' };
 
 describe('model settings', () => {
   it('start with the choice left to the analyzer', () => {
@@ -34,8 +34,8 @@ describe('model settings', () => {
   it('keep a complete set of settings as it is', () => {
     const settings: Settings = {
       unit: 'lb', effort: 'rir', analyzerURL: 'http://mac.local:8787', modelProvider: 'openrouter',
-      models: { anthropic: 'claude-haiku-5-5', zai: '', openrouter: 'qwen/qwen3.8-flash' },
-      apiKeys: { anthropic: '', zai: 'zai-key', openrouter: 'sk-or-key' },
+      models: { anthropic: 'claude-haiku-5-5', zai: '', openrouter: 'qwen/qwen3.8-flash', gemini: 'gemini-3.5-flash-lite' },
+      apiKeys: { anthropic: '', zai: 'zai-key', openrouter: 'sk-or-key', gemini: '' },
     };
     expect(normalizeSettings(settings)).toEqual(settings);
     expect(normalizeSettings(structuredClone(settings))).not.toBe(settings);
@@ -68,7 +68,7 @@ describe('API keys and backups', () => {
     const state = emptyState();
     state.settings.modelProvider = 'openrouter';
     state.settings.models.openrouter = 'qwen/qwen3.8-flash';
-    state.settings.apiKeys = { anthropic: 'sk-ant-SECRET', zai: 'zai-SECRET', openrouter: 'sk-or-SECRET' };
+    state.settings.apiKeys = { anthropic: 'sk-ant-SECRET', zai: 'zai-SECRET', openrouter: 'sk-or-SECRET', gemini: 'AIza-SECRET' };
     return state;
   }
 
@@ -202,7 +202,7 @@ describe('talking to the analyzer', () => {
       providers: [
         { id: 'anthropic', label: 'Anthropic', default_model: 'claude-opus-5-5', has_key: false },
         { id: 'zai', label: 'Z.ai', default_model: 'glm-4.6v-flash', has_key: true },
-        { id: 'gemini', label: 'Not known to this app', default_model: 'x', has_key: true },
+        { id: 'mistral', label: 'Not known to this app', default_model: 'x', has_key: true },
         null,
       ],
     }));

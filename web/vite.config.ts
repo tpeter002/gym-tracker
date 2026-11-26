@@ -40,7 +40,11 @@ export default defineConfig({
   plugins: [react(), serviceWorker()],
   server: {
     // `npm run dev` next to a running analyzer (uv run ../server/analyzer.py).
-    proxy: { '/health': ANALYZER, '/analyze': ANALYZER, '/models': ANALYZER },
+    // The browser tests switch this off: an analyzer that happens to be running
+    // on this machine must not answer in place of the ones they stand in.
+    proxy: process.env.GYM_TRACKER_NO_ANALYZER_PROXY
+      ? undefined
+      : { '/health': ANALYZER, '/analyze': ANALYZER, '/models': ANALYZER },
   },
   test: {
     include: ['tests/unit/**/*.test.ts'],

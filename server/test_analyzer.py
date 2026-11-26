@@ -42,8 +42,8 @@ EXERCISES = [
     {"name": "Half-Kneeling Cable Y Raise", "library_match": None, "muscle_group": "shoulders",
      "equipment": "cable", "notes": None, "sets_reps": None},
 ]
-SETTINGS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ZAI_API_KEY", "OPENROUTER_API_KEY",
-            "ANALYZER_PROVIDER", "ANALYZER_MODEL", "ZAI_BASE_URL", "OPENROUTER_BASE_URL"]
+SETTINGS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ZAI_API_KEY", "OPENROUTER_API_KEY", "GEMINI_API_KEY",
+            "ANALYZER_PROVIDER", "ANALYZER_MODEL", "ZAI_BASE_URL", "OPENROUTER_BASE_URL", "GEMINI_BASE_URL"]
 
 
 def b64(data: bytes) -> str:
@@ -258,7 +258,7 @@ def test_an_unknown_service_or_a_malformed_model_name_is_refused(monkeypatch):
     with pytest.raises(analyzer.ModelError) as failure:
         analyzer.choose_model("zai", "glm 4.6v; rm -rf")
     assert failure.value.status == 422
-    monkeypatch.setenv("ANALYZER_PROVIDER", "gemini")
+    monkeypatch.setenv("ANALYZER_PROVIDER", "mistral")
     with pytest.raises(analyzer.ModelError) as failure:
         analyzer.choose_model()
     assert failure.value.status == 500 and "ANALYZER_PROVIDER" in failure.value.message
@@ -412,6 +412,52 @@ def test_the_request_to_openrouter(chat, frames):
     }
     assert [part["type"] for part in chat.body["messages"][1]["content"]] == \
         ["text", "text", "image_url", "text", "image_url", "text"]
+
+
+def test_the_request_to_gemini(chat, frames):
+    chat.reply = chat.completion(ANSWER, model="gemini-3.8-flash")
+    choice = analyzer.choose_model("gemini", api_key="AIza-mine")
+    exercises, answered_by = analyzer.identify_exercises(choice, frames, INFO, KNOWN)
+    assert exercises == EXERCISES
+    assert answered_by == "gemini-3.8-flash"
+
+    request = chat.requests[-1]
+    assert str(request.url) == "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    assert request.headers["authorization"] == "Bearer AIza-mine"
+    assert set(chat.body) == {"model", "messages"}  # its schema dialect isn't RESULT_SCHEMA's, so none is sent
+    assert chat.body["model"] == "gemini-3.8-flash"
+    assert chat.body["messages"][0]["content"].endswith(analyzer.JSON_INSTRUCTIONS)
+    assert [part["type"] for part in chat.body["messages"][1]["content"]] == \
+        ["text", "text", "image_url", "text", "image_url", "text"]
+
+
+# Google wraps errors in a list and answers a bad key with a 400 (seen from the live service).
+@pytest.mark.parametrize("status, reply, expected_status, expected", [
+    (400, [{"error": {"code": 400, "message": "Please pass a valid API key", "status": "INVALID_ARGUMENT"}}], 401,
+     "Google rejected your API key — check it in the app under Settings → Video model."),
+    (400, [{"error": {"code": 400, "message": "Missing or invalid Authorization header.", "status": "INVALID_ARGUMENT"}}], 401,
+     "Google rejected your API key — check it in the app under Settings → Video model."),
+    (400, [{"error": {"code": 400, "message": "API key not valid. Please pass a valid API key.", "status": "INVALID_ARGUMENT"}}], 401,
+     "Google rejected your API key — check it in the app under Settings → Video model."),
+    (400, [{"error": {"code": 400, "message": "Unable to process input image.", "status": "INVALID_ARGUMENT"}}], 502,
+     "The AI request failed (400): Unable to process input image."),
+    (429, [{"error": {"code": 429, "message": "You exceeded your current quota.", "status": "RESOURCE_EXHAUSTED"}}], 429,
+     "Google's rate limit was hit; try again later. (You exceeded your current quota.)"),
+    (404, [{"error": {"code": 404, "message": "models/gemini-9 is not found", "status": "NOT_FOUND"}}], 422,
+     "Google has no model called “gemini-3.8-flash” — check the name in the app under Settings → Video model. "
+     "(models/gemini-9 is not found)"),
+])
+def test_gemini_errors_become_instructions(chat, frames, status, reply, expected_status, expected):
+    chat.status, chat.reply = status, reply
+    failure = chat_failure(chat, frames, "gemini")
+    assert (failure.status, failure.message) == (expected_status, expected)
+
+
+def test_gemini_being_overloaded_is_retried(chat, frames, waits):
+    chat.queue = [(503, [{"error": {"code": 503, "message": "The model is overloaded. Please try again later.", "status": "UNAVAILABLE"}}])]
+    chat.reply = chat.completion(ANSWER)
+    assert analyzer.identify_exercises(analyzer.choose_model("gemini", api_key="k"), frames, INFO, KNOWN)[0] == EXERCISES
+    assert waits == [2]
 
 
 def test_the_address_of_a_chat_api_can_be_changed_in_the_env_file(monkeypatch, chat, frames):
@@ -649,6 +695,7 @@ def test_health_still_says_ok_and_now_lists_the_services(monkeypatch, service):
         {"id": "anthropic", "label": "Anthropic", "default_model": "claude-opus-5-5", "has_key": False},
         {"id": "zai", "label": "Z.ai", "default_model": "glm-4.6v-flash", "has_key": False},
         {"id": "openrouter", "label": "OpenRouter", "default_model": "openrouter/free", "has_key": False},
+        {"id": "gemini", "label": "Google", "default_model": "gemini-3.8-flash", "has_key": False},
     ]
 
     monkeypatch.setenv("ZAI_API_KEY", "zai-server")
@@ -670,6 +717,8 @@ def test_models_for_the_services_with_a_fixed_list(service):
     assert "glm-5.3-flash" in [model["id"] for model in body["models"]]
     assert [model["id"] for model in service.get("/models", params={"provider": "anthropic"}).json()["models"]] == \
         ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]
+    assert [model["id"] for model in service.get("/models", params={"provider": "gemini"}).json()["models"]] == \
+        ["gemini-3.8-flash", "gemini-4-hydrogen", "gemini-3.6-flash", "gemini-3.5-flash-lite"]
     assert service.get("/models", params={"provider": "openai"}).status_code == 422
     assert service.get("/models").status_code == 422
 

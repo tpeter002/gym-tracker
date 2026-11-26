@@ -29,6 +29,7 @@ const PROVIDER_NOTES: Record<ModelProvider, string> = {
   anthropic: 'Claude models. Keys come from platform.claude.com.',
   zai: 'GLM models; glm-4.6v-flash is free. Keys come from z.ai, under API Keys.',
   openrouter: 'Hundreds of models behind one key from openrouter.ai; the free ones have a daily limit.',
+  gemini: 'Gemini models; the Flash ones have a free daily allowance. Keys come from aistudio.google.com.',
 };
 
 /** Choose which model names the exercises in a video, and whose key pays for it. */

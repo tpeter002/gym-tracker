@@ -7,6 +7,17 @@ turn saved workout videos into exercises on a "to try" list.
 It is its own program. It shares no code and no data with the iPhone app — only the video analyzer in
 `../server`, which both can call.
 
+Two things it does that the iPhone app doesn't yet:
+
+- **Up next** on the home screen: the routine you have gone longest without — what a rotation such as
+  push / pull / legs calls for next — with a button that repeats your last session of it. Workouts count
+  as the same routine when they share a name you gave them or at least half their exercises, so it also
+  works if you never name workouts. It looks at the last eight weeks and needs a routine to have been
+  done twice.
+- **To try today** inside a workout: the exercises from your saved videos that fit what you are training
+  — the workout already has an exercise for the same muscle, or at least a third of it is about the same
+  part of the body (legs, push, pull). They are offered with one tap each, never added by themselves.
+
 ## Run it
 
 Needs Node 22 or newer (20.19+ also works) and, for the video part, what the analyzer needs

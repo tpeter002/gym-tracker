@@ -1,7 +1,8 @@
-import { Check, ChevronDown, Ellipsis, Plus, SquarePlay } from 'lucide-react';
+import { Check, ChevronDown, CirclePlus, Ellipsis, Plus, SquarePlay } from 'lucide-react';
 import { memo, useMemo, useRef, useState } from 'react';
 import { goBack, navigate } from '../lib/router';
 import { update } from '../lib/store';
+import { toTryFor } from '../lib/suggestions';
 import type { AppState, EffortScale, Exercise, SetEntry, WeightUnit, Workout, WorkoutEntry } from '../lib/types';
 import { effortChoices, effortText, effortTitle, effortValue, fmtNumber, fromKg, rpeFrom, toKg } from '../lib/units';
 import {
@@ -10,10 +11,13 @@ import {
 } from '../lib/workouts';
 import { webLink } from '../lib/videos';
 import { DecimalField, IntegerField } from '../ui/controls';
-import { Page } from '../ui/layout';
+import { Page, Section } from '../ui/layout';
 import { ConfirmDialog, Menu } from '../ui/overlays';
-import { ElapsedTime } from '../ui/parts';
+import { ElapsedTime, ExerciseLabel } from '../ui/parts';
 import { ExercisePicker } from './ExercisePicker';
+
+/** How many fitting to-try exercises the workout lists before pointing at the picker. */
+const TO_TRY_SHOWN = 3;
 
 /**
  * The in-progress workout: exercises, their sets, and the finish / discard flow.
@@ -23,6 +27,8 @@ export function ActiveWorkout({ state, workout }: { state: AppState; workout: Wo
   const [showPicker, setShowPicker] = useState(false);
   const [question, setQuestion] = useState<'finish' | 'discard' | 'nothing' | null>(null);
   const exercises = useMemo(() => new Map(state.exercises.map((exercise) => [exercise.id, exercise])), [state.exercises]);
+  // Saved-video exercises that suit what is being trained today, so they aren't forgotten again.
+  const toTry = useMemo(() => toTryFor(state, workout), [state.exercises, workout.entries]);
   const edit = (change: (draft: Workout) => void) =>
     update((draft) => {
       const current = draft.workouts.find((candidate) => candidate.id === workout.id);
@@ -74,6 +80,30 @@ export function ActiveWorkout({ state, workout }: { state: AppState; workout: Wo
           </div>
         </div>
       </section>
+
+      {toTry.length > 0 && (
+        <Section
+          title="To try today"
+          footer={toTry.length > TO_TRY_SHOWN
+            ? `From your saved videos; ${toTry.length - TO_TRY_SHOWN} more that fit are in the exercise picker.`
+            : 'From your saved videos — they fit what you are training today.'}
+        >
+          {toTry.slice(0, TO_TRY_SHOWN).map((exercise) => (
+            <div key={exercise.id} className="row split">
+              <div className="row-main">
+                <ExerciseLabel exercise={exercise} />
+              </div>
+              <button
+                className="icon-button"
+                aria-label={`Add ${exercise.name}`}
+                onClick={() => update((draft) => addExercise(draft, workout.id, exercise.id))}
+              >
+                <CirclePlus size={26} aria-hidden />
+              </button>
+            </div>
+          ))}
+        </Section>
+      )}
 
       {workout.entries.map((entry, index) => (
         <EntrySection

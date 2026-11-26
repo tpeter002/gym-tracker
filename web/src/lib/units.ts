@@ -77,6 +77,14 @@ export const fmtMonthYear = (time: number) => monthYearFormat.format(time);
 export const fmtShortDate = (time: number) => shortDateFormat.format(time);
 
 /** Local calendar day as the YYYY-MM-DD a date input uses. */
+/** How long ago a day was, in calendar days: "today", "yesterday", "5 days ago". */
+export function fmtDaysAgo(time: number, now = Date.now()): string {
+  const midnight = (value: number) => new Date(value).setHours(0, 0, 0, 0);
+  const days = Math.max(0, Math.round((midnight(now) - midnight(time)) / 86_400_000));
+  if (days === 0) return 'today';
+  return days === 1 ? 'yesterday' : `${days} days ago`;
+}
+
 export function toDateInputValue(time: number): string {
   const date = new Date(time);
   const pad = (value: number) => String(value).padStart(2, '0');

@@ -211,6 +211,7 @@ a.row, button.row { cursor: pointer; }
 .row.split { padding: 0; gap: 0; align-items: stretch; }
 .row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 10px 16px; color: var(--text); }
 .row.split > .icon-button { align-self: center; margin-right: 8px; }
+.row.split > .btn { flex: none; align-self: center; margin-right: 12px; padding: 0 18px; }
 
 .title-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .sub { display: flex; align-items: center; gap: 5px; margin-top: 2px; color: var(--text-2); font-size: 13px; }
@@ -362,6 +363,8 @@ input[type='date'].field { flex: none; width: auto; margin-left: auto; color: va
 .summary .meta span { display: inline-flex; align-items: center; gap: 4px; }
 .summary ul { margin: 0; padding: 0; list-style: none; color: var(--text-2); font-size: 15px; }
 .summary li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.summary .fits { display: flex; align-items: flex-start; gap: 5px; margin: 6px 0 0; color: var(--accent); font-size: 13px; font-weight: 600; }
+.summary .fits svg { flex: none; margin-top: 2px; }
 
 /* Active workout */
 .entry-header { display: flex; align-items: center; gap: 4px; padding: 10px 6px 4px 14px; }

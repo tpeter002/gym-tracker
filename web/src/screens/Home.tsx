@@ -1,23 +1,27 @@
-import { ChevronUp, Dumbbell, Plus, Settings, SquarePlay } from 'lucide-react';
+import { Calendar, ChevronUp, Dumbbell, Plus, Settings, Sparkles, SquarePlay } from 'lucide-react';
 import { useMemo } from 'react';
 import { requestStart } from '../lib/actions';
 import { navigate } from '../lib/router';
+import { byNewest, nextWorkout, toTryFor } from '../lib/suggestions';
+import type { Routine } from '../lib/suggestions';
 import type { AppState, Workout } from '../lib/types';
+import { fmtDaysAgo } from '../lib/units';
 import { activeWorkout, finishedWorkouts } from '../lib/workouts';
 import { Link, LinkRow, Page, Section } from '../ui/layout';
 import { ElapsedTime, ExerciseLabel, WorkoutRow } from '../ui/parts';
 
 /**
- * Landing tab: start or resume a workout, see what's waiting from saved
- * videos, and repeat a recent session.
+ * Landing tab: start or resume a workout, see which routine is due and what's
+ * waiting from saved videos, and repeat a recent session.
  */
 export function Home({ state }: { state: AppState }) {
   const active = activeWorkout(state);
   const recent = useMemo(() => finishedWorkouts(state).slice(0, 5), [state.workouts]);
   const toTry = useMemo(
-    () => state.exercises.filter((exercise) => exercise.wantToTry).sort((a, b) => b.createdAt - a.createdAt),
+    () => state.exercises.filter((exercise) => exercise.wantToTry).sort(byNewest),
     [state.exercises],
   );
+  const next = useMemo(() => nextWorkout(state), [state.workouts]);
 
   return (
     <Page
@@ -39,6 +43,8 @@ export function Home({ state }: { state: AppState }) {
           </button>
         )}
       </div>
+
+      {next && <NextWorkout state={state} routine={next} />}
 
       <Section
         title="To try"
@@ -66,6 +72,45 @@ export function Home({ state }: { state: AppState }) {
         </Section>
       )}
     </Page>
+  );
+}
+
+/** The routine that is due, startable in one tap, with the saved-video exercises that would fit it. */
+function NextWorkout({ state, routine }: { state: AppState; routine: Routine }) {
+  const { latest } = routine;
+  const fitting = useMemo(() => toTryFor(state, latest), [state.exercises, latest]);
+  return (
+    <Section title="Up next" footer="The routine you have gone longest without. Starting it repeats your last session of it.">
+      <div className="row split">
+        <Link to={`/history/${latest.id}`} className="row-main">
+          <div className="summary">
+            <h3>{latest.name}</h3>
+            <div className="meta">
+              <span><Calendar size={14} aria-hidden />Last done {fmtDaysAgo(latest.startedAt)}</span>
+            </div>
+            <ul>
+              {latest.entries.slice(0, 4).map((entry) => (
+                <li key={entry.id}>{entry.sets.length} × {entry.exerciseName}</li>
+              ))}
+              {latest.entries.length > 4 && <li>+ {latest.entries.length - 4} more</li>}
+            </ul>
+            {fitting.length > 0 && (
+              <p className="fits">
+                <Sparkles size={14} aria-hidden />
+                {fitting.length} to try: {fitting.map((exercise) => exercise.name).join(', ')}
+              </p>
+            )}
+          </div>
+        </Link>
+        <button
+          className="btn btn-primary btn-inline"
+          aria-label={`Start ${latest.name}`}
+          onClick={() => requestStart({ kind: 'repeat', workoutId: latest.id })}
+        >
+          Start
+        </button>
+      </div>
+    </Section>
   );
 }
 

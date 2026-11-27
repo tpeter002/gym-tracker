@@ -2,6 +2,7 @@ import { useEffect, useId } from 'react';
 import type { ReactNode } from 'react';
 import { DIVISIONS, rankTitle } from '../lib/ranks';
 import type { Rank, RankUp, Tier } from '../lib/ranks';
+import { RANK_UP_SHOWN_MS } from '../lib/timing';
 
 // The emblem of each tier, drawn here rather than shipped as image files: a
 // weight plate for Iron, shields that gain a chevron and a star, a winged
@@ -168,13 +169,11 @@ export function RankProgress({ rank }: { rank: Pick<Rank, 'tier' | 'progress'> }
 
 /** Where the sparks fly to, in pixels from the emblem's middle. */
 const SPARKS = [[-44, -22], [-28, -42], [0, -50], [28, -42], [44, -22], [-50, 6], [50, 6], [-36, 30], [36, 30]];
-// Just past the moment .rank-up has slid away in styles.css (4.1s, then 0.35s); change the two together.
-const SHOWN_FOR = 4500; // milliseconds
 
 /** The moment a lift climbs a step: slides in over the workout, celebrates, and leaves by itself. */
 export function RankUpToast({ up, onDone }: { up: RankUp; onDone: () => void }) {
   useEffect(() => {
-    const timer = setTimeout(onDone, SHOWN_FOR);
+    const timer = setTimeout(onDone, RANK_UP_SHOWN_MS);
     return () => clearTimeout(timer);
   }, [up, onDone]);
 

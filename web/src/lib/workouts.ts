@@ -180,7 +180,7 @@ export function deleteWorkout(state: AppState, workoutId: string): void {
   state.workouts = state.workouts.filter((workout) => workout.id !== workoutId);
 }
 
-// MARK: Reading
+// --- reading ---------------------------------------------------------------------
 
 export const doneSets = (workout: Workout) =>
   workout.entries.flatMap((entry) => entry.sets).filter((set) => set.isDone);
@@ -203,10 +203,18 @@ export function rowLabels(sets: readonly SetEntry[]): string[] {
   return sets.map((set) => (set.isWarmup ? 'W' : String(++number)));
 }
 
-/** Epley estimate; only meaningful for weighted sets. */
+/** Reps past this add nothing to an estimate: a 30-rep set says little about what could be lifted once. */
+export const MAX_REPS_FOR_ESTIMATE = 12;
+
+/** Epley's estimate of a one-rep max. The one rule for it: records and ranks both use this. */
+export function oneRepMax(weight: number, reps: number): number {
+  return reps === 1 ? weight : weight * (1 + Math.min(reps, MAX_REPS_FOR_ESTIMATE) / 30);
+}
+
+/** The estimate for a logged set; null for one without weight or reps. */
 export function estimatedOneRepMax(set: SetEntry): number | null {
   if (!set.weight || !set.reps || set.weight <= 0 || set.reps <= 0) return null;
-  return set.reps === 1 ? set.weight : set.weight * (1 + set.reps / 30);
+  return oneRepMax(set.weight, set.reps);
 }
 
 export interface Session {

@@ -39,7 +39,9 @@ test('saying that the weights are both dumbbells turns last time around, and is 
 
   // Only dumbbell exercises ask.
   await addExercise(page, 'bench press', 'Bench Press (Barbell)');
-  await expect(toggle(page.getByRole('region', { name: 'Bench Press (Barbell)' }))).toHaveCount(0);
+  const bench = page.getByRole('region', { name: 'Bench Press (Barbell)' });
+  await expect(bench.getByLabel('Weight').first()).toBeVisible(); // it is there, with its sets
+  await expect(toggle(bench)).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Finish' }).click();
   await page.getByRole('alertdialog', { name: 'Finish workout?' }).getByRole('button', { name: 'Finish' }).click();

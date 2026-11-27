@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
 import { changeSettings } from '../lib/actions';
 import {
-  BODY_REGION_TITLES, BODY_REGIONS, describeLift, DIVISIONS, latestBodyKg, overallRank, rankSetup, rankTitle, STANDARDS_OPTIONS, stepAfter, TIER_TITLES, TIERS,
+  describeLift, DIVISIONS, latestBodyKg, overallRank, rankSetup, rankTitle, STANDARDS_OPTIONS, stepAfter, TIER_TITLES, TIERS,
 } from '../lib/ranks';
 import type { LiftRank, OverallRank } from '../lib/ranks';
+import { BODY_REGION_TITLES, BODY_REGIONS } from '../lib/types';
 import type { AppState, WeightUnit } from '../lib/types';
 import { weightText } from '../lib/units';
 import { Segmented } from '../ui/controls';

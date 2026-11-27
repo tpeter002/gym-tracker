@@ -29,7 +29,14 @@ export const effortLabel = (scale: EffortScale, rpe: number) =>
 
 /** Number in the browser's locale without trailing zeros: 80, 82.5, 61.25. */
 export function fmtNumber(value: number, maxDecimals = 2): string {
-  return value.toLocaleString(undefined, { maximumFractionDigits: maxDecimals, useGrouping: false });
+  return value.toLocaleString(undefined, {
+    maximumFractionDigits: maxDecimals,
+    useGrouping: false,
+    // The same text fills the number fields, which read 0–9 back (see parseDecimal), whatever digits the region writes.
+    numberingSystem: 'latn',
+    // A change that rounds to nothing is "0", not "-0".
+    signDisplay: 'negative',
+  });
 }
 
 /** Accepts both "82.5" and "82,5" — the phone's decimal key follows the region setting. */
@@ -82,7 +89,6 @@ export const fmtMonthYear = (time: number) => monthYearFormat.format(time);
 /** "20 Nov" */
 export const fmtShortDate = (time: number) => shortDateFormat.format(time);
 
-/** Local calendar day as the YYYY-MM-DD a date input uses. */
 /** How long ago a day was, in calendar days: "today", "yesterday", "5 days ago". */
 export function fmtDaysAgo(time: number, now = Date.now()): string {
   const midnight = (value: number) => new Date(value).setHours(0, 0, 0, 0);
@@ -91,6 +97,7 @@ export function fmtDaysAgo(time: number, now = Date.now()): string {
   return days === 1 ? 'yesterday' : `${days} days ago`;
 }
 
+/** Local calendar day as the YYYY-MM-DD a date input uses. */
 export function toDateInputValue(time: number): string {
   const date = new Date(time);
   const pad = (value: number) => String(value).padStart(2, '0');

@@ -1,10 +1,10 @@
 import { normalizeName } from './exercises';
 import { LIBRARY } from './library';
 import { STANDARD_LINES } from './standards';
-import { REGIONS } from './suggestions';
-import type { AppState, Equipment, Exercise, MuscleGroup, RankStandards, WeightUnit, Workout } from './types';
+import { BODY_REGIONS, REGION_OF } from './types';
+import type { AppState, BodyRegion, Equipment, Exercise, MuscleGroup, RankStandards, WeightUnit, Workout } from './types';
 import { fmtNumber, fromKg } from './units';
-import { weightEach } from './workouts';
+import { oneRepMax, weightEach } from './workouts';
 
 // A rank for every lift: how the best set you have logged compares with what
 // strong lifters of your body weight manage (standards.ts). Seven tiers of
@@ -29,8 +29,6 @@ export const STEPS = TIERS.length * DIVISIONS;
 const BRONZE = TIER_STARTS[1];
 
 const DIVISION_MARKS = ['I', 'II', 'III'];
-/** Reps past this add nothing to a weighted lift's estimate: a 30-rep set says little about a one-rep max. */
-const MAX_REPS_WEIGHTED = 12;
 const MAX_REPS_BODYWEIGHT = 150;
 /** Women's requirements as a share of men's, by where the muscle is. */
 const WOMEN_UPPER_BODY = 0.68;
@@ -106,6 +104,7 @@ export const STANDARDS: Standard[] = STANDARD_LINES.trim().split('\n').map((line
 });
 
 const BY_NAME = new Map(STANDARDS.map((standard) => [normalizeName(standard.name), standard]));
+const BUILT_IN = new Set(LIBRARY.map((item) => normalizeName(item.name)));
 
 /**
  * The standard for an exercise: its own line when it is a library exercise,
@@ -114,9 +113,11 @@ const BY_NAME = new Map(STANDARDS.map((standard) => [normalizeName(standard.name
  * has to agree, because one dumbbell and a loaded bar are logged differently.
  */
 export function standardFor(exercise: Pick<Exercise, 'name' | 'equipment'>): Standard | null {
-  const exact = BY_NAME.get(normalizeName(exercise.name));
-  if (exact) return exact;
-  const words = new Set(normalizeName(exercise.name).split(' '));
+  const key = normalizeName(exercise.name);
+  // A built-in exercise has its own line or was left without one on purpose
+  // (holds, drills): it is never measured as something its name merely contains.
+  if (BY_NAME.has(key) || BUILT_IN.has(key)) return BY_NAME.get(key) ?? null;
+  const words = new Set(key.split(' '));
   let found: Standard | null = null;
   for (const standard of STANDARDS) {
     if (standard.equipment !== exercise.equipment || !standard.movement.every((word) => words.has(word))) continue;
@@ -169,8 +170,7 @@ function bestSets(workouts: readonly Workout[], bodyKg: number, includeActive: b
         // The standards count one dumbbell, whichever way the set was typed in.
         const weight = Math.max(0, weightEach(entry, set) ?? 0);
         const best = found.get(entry.exerciseId) ?? { oneRepMaxKg: 0, bodyLoad: 0 };
-        const oneRepMax = set.reps === 1 ? weight : weight * repsToLoad(Math.min(set.reps, MAX_REPS_WEIGHTED));
-        best.oneRepMaxKg = Math.max(best.oneRepMaxKg, oneRepMax);
+        best.oneRepMaxKg = Math.max(best.oneRepMaxKg, oneRepMax(weight, set.reps));
         best.bodyLoad = Math.max(best.bodyLoad, (1 + weight / bodyKg) * repsToLoad(Math.min(set.reps, MAX_REPS_BODYWEIGHT)));
         found.set(entry.exerciseId, best);
       }
@@ -257,8 +257,10 @@ export function describeLift(rank: LiftRank, unit: WeightUnit): { best: string; 
     // Rounded up to what can be loaded, so the number shown is always enough.
     const plate = unit === 'kg' ? 0.5 : 1;
     const need = rank.next ? Math.ceil(fromKg(unit, rank.next.need) / plate - 1e-6) * plate : 0;
+    // Ranks count one dumbbell however a session was typed in; said, because the records beside it may show the pair.
+    const each = rank.exercise.equipment === 'dumbbell' ? ' per dumbbell' : '';
     return {
-      best: `Est. 1RM ${fmtNumber(fromKg(unit, rank.best), 1)} ${unit}`,
+      best: `Est. 1RM ${fmtNumber(fromKg(unit, rank.best), 1)} ${unit}${each}`,
       next: rank.next && `${fmtNumber(need, 1)} ${unit} for ${rankTitle(rank.next)}`,
     };
   }
@@ -269,10 +271,6 @@ export function describeLift(rank: LiftRank, unit: WeightUnit): { best: string; 
     next: rank.next && `${Math.ceil(rank.next.need - 1e-6)} reps for ${rankTitle(rank.next)}`,
   };
 }
-
-export const BODY_REGIONS = ['push', 'pull', 'legs'] as const;
-export type BodyRegion = (typeof BODY_REGIONS)[number];
-export const BODY_REGION_TITLES: Record<BodyRegion, string> = { push: 'Push', pull: 'Pull', legs: 'Legs' };
 
 export interface OverallRank {
   /** null until at least one lift is ranked. */
@@ -289,7 +287,7 @@ export interface OverallRank {
 export function overallRank(ranks: readonly LiftRank[]): OverallRank {
   const best: OverallRank['best'] = { push: null, pull: null, legs: null };
   for (const rank of ranks) {
-    const region = REGIONS[rank.exercise.muscle];
+    const region = REGION_OF[rank.exercise.muscle];
     if (region && (!best[region] || rank.score > best[region].score)) best[region] = rank;
   }
   const total = BODY_REGIONS.reduce((sum, region) => sum + (best[region]?.score ?? 0), 0);

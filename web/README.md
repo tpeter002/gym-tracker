@@ -165,6 +165,7 @@ numbers come from and how rough they are. Change a line if a rank feels off.
 ## Tests
 
 ```sh
+npm run typecheck                      # the app and its tests
 npm test                               # the logic, in Node (Vitest)
 npx playwright install chromium webkit # once
 npm run test:e2e                       # the built app in desktop Chromium and iPhone-sized WebKit
@@ -172,7 +173,8 @@ npm run test:e2e                       # the built app in desktop Chromium and i
 
 `tests/unit` and `tests/e2e` have one file per feature. The browser tests stand in for the analyzer
 themselves, so they need neither the Mac service nor an API key; opening without a connection is
-tested in Chromium only. The analyzer's own tests are described in
+tested in Chromium only. `tests/fixtures/backup-v1.json` is a backup in the format people have on
+disk: a change that stops it restoring is a change that breaks their files. The analyzer's own tests are described in
 [its README](../server/README.md#tests).
 
 ## Code

@@ -1,7 +1,7 @@
 import { findByName, guessMuscle, newExercise, normalizeName } from './exercises';
 import { uid } from './ids';
 import { EQUIPMENT, MUSCLE_GROUPS } from './types';
-import type { AppState, Equipment, Exercise, ExerciseSuggestion, MuscleGroup, SavedVideo } from './types';
+import type { AnalysisResult, AppState, Equipment, Exercise, ExerciseSuggestion, MuscleGroup, SavedVideo } from './types';
 
 /**
  * First http(s) link in a piece of shared or pasted text. Apps like TikTok
@@ -51,12 +51,13 @@ function hostOf(link: string): string {
 }
 
 export function videoSource(link: string): string {
-  const host = hostOf(link);
-  if (host.includes('instagram')) return 'Instagram';
-  if (host.includes('tiktok')) return 'TikTok';
-  if (host.includes('youtu')) return 'YouTube';
-  if (host.includes('facebook') || host.includes('fb.watch')) return 'Facebook';
-  return host.replace('www.', '');
+  const host = hostOf(link).replace(/^(www|m)\./, '');
+  const isAt = (...sites: string[]) => sites.some((site) => host === site || host.endsWith(`.${site}`));
+  if (isAt('instagram.com')) return 'Instagram';
+  if (isAt('tiktok.com')) return 'TikTok';
+  if (isAt('youtube.com', 'youtu.be')) return 'YouTube';
+  if (isAt('facebook.com', 'fb.watch')) return 'Facebook';
+  return host;
 }
 
 export const videoTitle = (video: SavedVideo) => video.title || `${videoSource(video.url)} video`;
@@ -155,15 +156,6 @@ export function adoptSuggestion(state: AppState, suggestion: ExerciseSuggestion,
     if (suggestion.setsReps) lines.push(`From the video: ${suggestion.setsReps}`);
     exercise.notes = lines.join('\n');
   }
-}
-
-export interface AnalysisResult {
-  title: string | null;
-  caption: string | null;
-  thumbnail: string | null;
-  exercises: ExerciseSuggestion[];
-  /** The model that answered, when the analyzer says (older analyzers don't). */
-  model?: string | null;
 }
 
 /**

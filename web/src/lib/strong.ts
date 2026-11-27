@@ -49,7 +49,7 @@ export class StrongFormatError extends Error {}
  * newer semicolon-separated one (`Workout #;Date;…;Duration (sec);…;Weight (kg);…`).
  */
 export function parseStrongCSV(input: string): StrongImport {
-  const text = input.startsWith('﻿') ? input.slice(1) : input;
+  const text = input.startsWith('\uFEFF') ? input.slice(1) : input; // a byte-order mark, as Excel writes
   const firstLine = text.split(/\r\n|\n|\r/).find((line) => line.length > 0);
   if (firstLine === undefined) throw new StrongFormatError('The file is empty.');
   const count = (character: string) => firstLine.split(character).length - 1;
@@ -95,7 +95,9 @@ export function parseStrongCSV(input: string): StrongImport {
     }
 
     const workoutName = cell(nameCol);
-    const key = numberCol !== null ? cell(numberCol) : `${cell(dateCol)}|${workoutName}`;
+    // The export's own workout number where it has one; a row without it must
+    // not be lumped together with every other such row.
+    const key = cell(numberCol) || `${cell(dateCol)}|${workoutName}`;
     let workout = workoutByKey.get(key);
     if (!workout) {
       workout = {

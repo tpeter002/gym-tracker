@@ -40,7 +40,12 @@ describe('model settings', () => {
       autoExport: { strava: true, garmin: false }, rankStandards: 'women', shareCode: 'a1b2c3d4e5f6a7b8c9d0e1f2',
     };
     expect(normalizeSettings(settings)).toEqual(settings);
-    expect(normalizeSettings(structuredClone(settings))).not.toBe(settings);
+    // A copy all the way down: editing what comes out must never edit what went in.
+    const normalized = normalizeSettings(settings);
+    expect(normalized).not.toBe(settings);
+    expect(normalized.models).not.toBe(settings.models);
+    expect(normalized.apiKeys).not.toBe(settings.apiKeys);
+    expect(normalized.autoExport).not.toBe(settings.autoExport);
   });
 
   it('replace anything of the wrong kind with its default', () => {
@@ -210,7 +215,6 @@ describe('talking to the analyzer', () => {
     }));
 
     expect(await analyzerInfo('')).toEqual({
-      defaultProvider: 'zai',
       providers: [
         { id: 'anthropic', defaultModel: 'claude-opus-5-5', hasKey: false },
         { id: 'zai', defaultModel: 'glm-4.6v-flash', hasKey: true },
@@ -221,7 +225,7 @@ describe('talking to the analyzer', () => {
 
   it('recognises an analyzer from before models were selectable', async () => {
     fetched.mockResolvedValue(json({ ok: true }));
-    expect(await analyzerInfo('')).toEqual({ defaultProvider: null, providers: [] });
+    expect(await analyzerInfo('')).toEqual({ providers: [] });
   });
 
   it('reports no analyzer when the address answers with something else', async () => {

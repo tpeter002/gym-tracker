@@ -286,7 +286,7 @@ test('a link handed over in the address is saved', async ({ page }) => {
 });
 
 test('import a Strong export', async ({ page }) => {
-  const csv = '﻿' + [
+  const csv = '\uFEFF' + [
     'Date,Workout Name,Duration,Exercise Name,Set Order,Weight,Reps,Distance,Seconds,Notes,Workout Notes,RPE',
     '2023-03-01 18:05:10,"Push",1h 5m,"Bench Press (Barbell)",1,100.0,8,0,0,"","",8.5',
     '2023-03-01 18:05:10,"Push",1h 5m,"Bench Press (Barbell)",2,105.0,6,0,0,"","",',
@@ -398,7 +398,7 @@ test('download a backup and restore it in a fresh browser', async ({ page, brows
   const text = await readFile(await saved.path(), 'utf8');
   expect(JSON.parse(text).data.workouts).toHaveLength(12);
 
-  const context = await browser.newContext({ baseURL: 'http://localhost:4173' });
+  const context = await browser.newContext(); // a second browser, at the configured address
   const other = await context.newPage();
   await other.goto('/#/history');
   await expect(other.getByRole('heading', { name: 'No Workouts Yet' })).toBeVisible();
@@ -463,7 +463,7 @@ test('says so when the browser gives it nowhere to store data', async ({ page })
   await expect(page.getByLabel('Workout name')).toBeVisible();
 });
 
-test('a connection test overtaken by an edit of the address reports nothing', async ({ page }) => {
+test('a connection test overtaken by an edit of the address reports nothing', async ({ page, baseURL }) => {
   let release = () => {};
   const held = new Promise<void>((resolve) => { release = resolve; });
   let answered = 0;
@@ -475,12 +475,13 @@ test('a connection test overtaken by an edit of the address reports nothing', as
   await page.goto('/#/settings');
   const address = page.getByLabel('Analyzer address');
   const button = page.getByRole('button', { name: /^Test Connection/ });
+  const host = new URL(baseURL!).host;
 
-  await address.fill('localhost:4173/slow');
+  await address.fill(`${host}/slow`);
   await button.click();
   await expect(button.locator('.spinner')).toBeVisible();
   // The address changes while the answer is on its way, so the answer is about another analyzer.
-  await address.fill('localhost:4173/quick');
+  await address.fill(`${host}/quick`);
   await expect(button.locator('.spinner')).toHaveCount(0);
   release();
   await expect.poll(() => answered).toBe(1);
@@ -532,4 +533,28 @@ test('a record the app cannot draw leaves a way out instead of a blank page', as
   await tamper(page, { remove: 'damaged' });
   await fallback.getByRole('button', { name: 'Reload' }).click();
   await expect(page.getByRole('heading', { name: 'No Workouts Yet' })).toBeVisible();
+});
+
+test('what is deleted stays deleted after the app is opened again', async ({ page }) => {
+  await seed(page);
+  await page.goto('/#/history');
+  const main = page.getByRole('main');
+  await expect(main.getByRole('link', { name: /Legs/ })).toHaveCount(4);
+  await main.getByRole('link', { name: /Legs/ }).first().click();
+  await page.getByRole('button', { name: 'Workout options' }).click();
+  await page.getByRole('menuitem', { name: 'Delete Workout' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete Workout' }).click();
+  await expect(main.getByRole('link', { name: /Legs/ })).toHaveCount(3);
+
+  await page.reload();
+  await expect(main.getByRole('link', { name: /Push/ })).toHaveCount(4); // the rest is back from storage…
+  await expect(main.getByRole('link', { name: /Legs/ })).toHaveCount(3); // …and the deleted workout is not
+});
+
+test('an address that cannot be read is a page that is not there, not a blank screen', async ({ page }) => {
+  await seed(page);
+  await page.goto('/#/history/100%');
+  await expect(page.getByRole('heading', { name: 'History', level: 1 })).toBeVisible();
+  await page.goto('/#/exercises/%E0%A4%A');
+  await expect(page.getByRole('heading', { name: 'Exercises', level: 1 })).toBeVisible();
 });

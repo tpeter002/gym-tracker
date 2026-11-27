@@ -111,7 +111,7 @@ test('a backup carries the model choice but never the key', async ({ page, brows
   const file = { name: saved.suggestedFilename(), mimeType: 'application/json', buffer: Buffer.from(text) };
 
   // Another browser gets the choice and an empty key field.
-  const context = await browser.newContext({ baseURL: 'http://localhost:4173' });
+  const context = await browser.newContext(); // a second browser, at the configured address
   const other = await context.newPage();
   await mockModelAnalyzer(other);
   await other.goto('/#/settings');
@@ -137,6 +137,7 @@ test('an analyzer from before models were selectable is called out', async ({ pa
   await service(page).selectOption({ label: 'Z.ai (GLM)' });
   await expect(page.getByText('This analyzer is an older version and ignores the choice — update it and start it again.')).toBeVisible();
   await expect(model(page)).toHaveAttribute('placeholder', 'Default model');
+  await page.waitForLoadState('networkidle'); // the answer about its models (there is none) has arrived
   await expect(page.locator('#model-suggestions option')).toHaveCount(0);
 
   // Videos are still identified — by whatever that analyzer uses — and nothing is claimed about the model.

@@ -1,5 +1,6 @@
 import { navigate } from './router';
-import { getState, signal, update } from './store';
+import { signal } from './signal';
+import { getState, update } from './store';
 import type { Settings } from './types';
 import { activeWorkout, startEmpty, startRepeat } from './workouts';
 

@@ -1,0 +1,225 @@
+{
+  "app": "gym-tracker-web",
+  "version": 1,
+  "exportedAt": 1795800000000,
+  "data": {
+    "libraryVersion": 1,
+    "settings": {
+      "unit": "lb",
+      "effort": "rir",
+      "analyzerURL": "my-mac.local:8787",
+      "modelProvider": "gemini",
+      "models": {
+        "anthropic": "",
+        "zai": "",
+        "openrouter": "",
+        "gemini": "gemini-3-flash-preview"
+      },
+      "apiKeys": {
+        "anthropic": "",
+        "zai": "",
+        "openrouter": "",
+        "gemini": ""
+      },
+      "autoExport": {
+        "strava": true,
+        "garmin": false
+      },
+      "rankStandards": "men",
+      "shareCode": ""
+    },
+    "exercises": [
+      {
+        "id": "ex-bench",
+        "name": "Bench Press (Barbell)",
+        "muscle": "chest",
+        "equipment": "barbell",
+        "isCustom": false,
+        "notes": "",
+        "videoURL": null,
+        "videoId": null,
+        "wantToTry": false,
+        "createdAt": 1790000000000
+      },
+      {
+        "id": "ex-press",
+        "name": "Overhead Press (Dumbbell)",
+        "muscle": "shoulders",
+        "equipment": "dumbbell",
+        "isCustom": false,
+        "notes": "",
+        "videoURL": null,
+        "videoId": null,
+        "wantToTry": false,
+        "createdAt": 1790000000000
+      },
+      {
+        "id": "ex-raise",
+        "name": "Half-Kneeling Cable Y Raise",
+        "muscle": "shoulders",
+        "equipment": "cable",
+        "isCustom": true,
+        "notes": "One knee down.\nFrom the video: 3 x 12",
+        "videoURL": "https://www.youtube.com/shorts/abcdefghijk",
+        "videoId": "video-1",
+        "wantToTry": true,
+        "createdAt": 1795000000000
+      }
+    ],
+    "workouts": [
+      {
+        "id": "workout-1",
+        "name": "Push",
+        "startedAt": 1795600000000,
+        "endedAt": 1795603720000,
+        "notes": "Felt strong.",
+        "exports": {
+          "strava": {
+            "status": "sent",
+            "at": 1795603800000,
+            "url": "https://www.strava.com/activities/1"
+          },
+          "garmin": {
+            "status": "failed",
+            "at": 1795603900000,
+            "error": "Garmin Connect refused the request (400: HTTP 400)."
+          }
+        },
+        "entries": [
+          {
+            "id": "entry-1",
+            "exerciseId": "ex-bench",
+            "exerciseName": "Bench Press (Barbell)",
+            "notes": "",
+            "sets": [
+              {
+                "id": "set-1",
+                "weight": 40,
+                "reps": 10,
+                "rpe": null,
+                "isWarmup": true,
+                "isDone": true
+              },
+              {
+                "id": "set-2",
+                "weight": 87.5,
+                "reps": 8,
+                "rpe": 7.5,
+                "isWarmup": false,
+                "isDone": true
+              }
+            ]
+          },
+          {
+            "id": "entry-2",
+            "exerciseId": "ex-press",
+            "exerciseName": "Overhead Press (Dumbbell)",
+            "notes": "Seated today.",
+            "bothDumbbells": true,
+            "sets": [
+              {
+                "id": "set-3",
+                "weight": 63,
+                "reps": 10,
+                "rpe": 8,
+                "isWarmup": false,
+                "isDone": true
+              }
+            ]
+          },
+          {
+            "id": "entry-3",
+            "exerciseId": null,
+            "exerciseName": "An Exercise Deleted Since",
+            "notes": "",
+            "sets": [
+              {
+                "id": "set-4",
+                "weight": null,
+                "reps": 12,
+                "rpe": null,
+                "isWarmup": false,
+                "isDone": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "workout-2",
+        "name": "Evening Workout",
+        "startedAt": 1795700000000,
+        "endedAt": null,
+        "notes": "",
+        "entries": [
+          {
+            "id": "entry-4",
+            "exerciseId": "ex-bench",
+            "exerciseName": "Bench Press (Barbell)",
+            "notes": "",
+            "sets": [
+              {
+                "id": "set-5",
+                "weight": 90,
+                "reps": 5,
+                "rpe": null,
+                "isWarmup": false,
+                "isDone": true
+              },
+              {
+                "id": "set-6",
+                "weight": null,
+                "reps": null,
+                "rpe": null,
+                "isWarmup": false,
+                "isDone": false
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "bodyWeights": [
+      {
+        "id": "weight-1",
+        "date": 1795500000000,
+        "kg": 82.9
+      },
+      {
+        "id": "weight-2",
+        "date": 1795000000000,
+        "kg": 83.4
+      }
+    ],
+    "videos": [
+      {
+        "id": "video-1",
+        "url": "https://www.youtube.com/shorts/abcdefghijk",
+        "title": "3 cable moves for rear delts",
+        "caption": "Save this for pull day",
+        "thumbnail": "data:image/jpeg;base64,AAAA",
+        "addedAt": 1795000000000,
+        "analyzedAt": 1795000060000,
+        "analyzedBy": "gemini-3-flash-preview",
+        "suggestions": [
+          {
+            "name": "Cable Face Pull",
+            "libraryMatch": "Face Pull (Cable)",
+            "muscleGroup": "shoulders",
+            "equipment": "cable",
+            "notes": "Rope at eye level.",
+            "setsReps": "3 x 15"
+          },
+          {
+            "name": "Half-Kneeling Cable Y Raise",
+            "libraryMatch": null,
+            "muscleGroup": "shoulders",
+            "equipment": "cable",
+            "notes": null,
+            "setsReps": null
+          }
+        ]
+      }
+    ]
+  }
+}

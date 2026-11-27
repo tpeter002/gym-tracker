@@ -3,9 +3,11 @@ import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { beginWorkout, startConflict } from './lib/actions';
 import { sendWaiting } from './lib/exports';
-import { analyzePending, collectShared, ensureShareCode, takeSharedLink } from './lib/inbox';
+import { analyzePending, takeSharedLink } from './lib/identify';
+import { collectShared, ensureShareCode } from './lib/inbox';
 import { navigate, useRoute } from './lib/router';
-import { storageStatus, update, useAppState, useSignal } from './lib/store';
+import { useSignal } from './lib/signal';
+import { storageStatus, update, useAppState } from './lib/store';
 import type { AppState } from './lib/types';
 import { activeWorkout, deleteWorkout } from './lib/workouts';
 import { ActiveWorkout } from './screens/ActiveWorkout';
@@ -121,6 +123,11 @@ export function App() {
         {storage === 'unavailable' && (
           <p className="banner" role="alert">
             This browser window doesn't allow websites to store data (a private window?), so nothing you log here will be kept.
+          </p>
+        )}
+        {storage === 'unreadable' && (
+          <p className="banner" role="alert">
+            What this browser has stored for the app couldn't be read, so it started empty and will save nothing this time. Reload to try again; what is stored has not been touched.
           </p>
         )}
         {storage === 'failed' && (

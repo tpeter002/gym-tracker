@@ -61,7 +61,7 @@ describe('Strong CSV parser', () => {
   });
 
   it('copes with a byte-order mark and Windows line endings', () => {
-    const csv = '﻿Date,Workout Name,Duration,Exercise Name,Set Order,Weight,Reps\r\n' +
+    const csv = '\uFEFFDate,Workout Name,Duration,Exercise Name,Set Order,Weight,Reps\r\n' +
       '2023-03-01 18:05:10,Push,45m,Bench Press (Barbell),1,80,8\r\n';
     expect(parseStrongCSV(csv).workouts[0].exercises[0].sets).toHaveLength(1);
   });
@@ -107,5 +107,19 @@ describe('Strong CSV parser', () => {
     expect(guessMuscle('Close Grip Bench Press (Barbell)')).toBe('triceps');
     expect(guessEquipment('Bench Press (Smith Machine)')).toBe('machine');
     expect(guessEquipment('Pull Up')).toBe('other');
+  });
+});
+
+describe('rows of the newer export without a workout number', () => {
+  it('are told apart by their date and name instead of becoming one workout', () => {
+    const csv = [
+      'Workout #;Date;Workout Name;Duration (sec);Exercise Name;Set Order;Weight (kg);Reps;RPE;Distance (meters);Seconds;Notes;Workout Notes',
+      '7;2024-05-01 18:00:00;Push;3600;Bench Press (Barbell);1;80;8;;;;;',
+      ';2024-05-03 18:00:00;Pull;3600;Pull Up;1;;9;;;;;',
+      ';2024-05-05 18:00:00;Legs;3600;Squat (Barbell);1;100;5;;;;;',
+      ';2024-05-05 18:00:00;Legs;3600;Squat (Barbell);2;100;5;;;;;',
+    ].join('\n');
+    const result = parseStrongCSV(csv);
+    expect(result.workouts.map((workout) => [workout.name, workout.exercises[0].sets.length])).toEqual([['Push', 1], ['Pull', 1], ['Legs', 2]]);
   });
 });

@@ -31,11 +31,7 @@ export function ExerciseEditor({ state, exercise, suggestedName = '', onSaved, o
 
   const save = () => {
     if (!canSave) return;
-    let id = '';
-    update((draft) => {
-      id = saveExercise(draft, { name, muscle, equipment, notes, videoURL }, exercise?.id);
-    });
-    onSaved?.(id);
+    onSaved?.(update((draft) => saveExercise(draft, { name, muscle, equipment, notes, videoURL }, exercise?.id)));
     onClose();
   };
 

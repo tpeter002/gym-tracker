@@ -5,6 +5,7 @@ import { rankUps } from '../lib/ranks';
 import type { LiftRank, RankUp } from '../lib/ranks';
 import { goBack, navigate } from '../lib/router';
 import { update } from '../lib/store';
+import { RANK_SETTLE_MS } from '../lib/timing';
 import { toTryFor } from '../lib/suggestions';
 import type { AppState, EffortScale, Exercise, SetEntry, WeightUnit, Workout, WorkoutEntry } from '../lib/types';
 import { effortChoices, effortText, effortTitle, effortValue, fmtNumber, fromKg, rpeFrom, setText, toKg } from '../lib/units';
@@ -23,8 +24,6 @@ import { ExercisePicker } from './ExercisePicker';
 
 /** How many fitting to-try exercises the workout lists before pointing at the picker. */
 const TO_TRY_SHOWN = 3;
-/** A rank has to hold this long before it is celebrated, so typing "100" isn't three rank-ups. */
-const RANK_SETTLE = 600; // milliseconds
 
 /**
  * Ranks as they stand with this workout's ticked sets counted, and the climb to
@@ -51,7 +50,7 @@ function useLiveRanks(state: AppState): { ranks: Map<string, LiftRank>; rankUp: 
       }
       seen.current = [...known.values()];
       if (biggest) setRankUp(biggest);
-    }, RANK_SETTLE);
+    }, RANK_SETTLE_MS);
     return () => clearTimeout(timer);
   }, [ranks]);
 

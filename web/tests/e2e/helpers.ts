@@ -1,5 +1,5 @@
 import { expect } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { Page, Route } from '@playwright/test';
 import { exportBackup } from '../../src/lib/backup';
 import { seedLibrary } from '../../src/lib/exercises';
 import { uid } from '../../src/lib/ids';
@@ -8,6 +8,13 @@ import type { AppState, Workout } from '../../src/lib/types';
 import { linkExercise } from '../../src/lib/videos';
 
 const DAY = 86_400_000;
+
+function noonDaysAgo(now: number, days: number): number {
+  const date = new Date(now);
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() - days);
+  return date.getTime();
+}
 
 /**
  * Four weeks of push / pull / legs, body-weight entries, and one saved video
@@ -25,8 +32,10 @@ export function demoBackup(now = Date.now()): string {
   ];
   for (let week = 0; week < 4; week++) {
     plans.forEach((plan, index) => {
-      // The latest one (Legs) ended an hour ago, so a workout logged in a test is the newest.
-      const start = now - ((3 - week) * 7 + (4 - index * 2)) * DAY - 122 * 60_000;
+      // Whole calendar days back, at noon, so "4 days ago" is true whatever the time of day the tests run at.
+      // The latest one (Legs, today) ended an hour ago, so a workout logged in a test is the newest.
+      const daysBack = (3 - week) * 7 + (4 - index * 2);
+      const start = daysBack === 0 ? now - 122 * 60_000 : noonDaysAgo(now, daysBack);
       const workout: Workout = {
         id: uid(), name: plan.name, startedAt: start, endedAt: start + 62 * 60_000, notes: '',
         entries: plan.lifts.map(([name, weight, reps, sets]) => ({
@@ -74,12 +83,13 @@ export async function addExercise(page: Page, search: string, name: string): Pro
   await page.getByRole('button', { name: 'Add Exercise' }).click();
   const picker = page.getByRole('dialog', { name: 'Add Exercise' });
   await picker.getByRole('searchbox').fill(search);
-  await picker.getByRole('button', { name: new RegExp(`^${escape(name)}`) }).click();
+  await picker.getByRole('button', { name: new RegExp(`^${escapeRegExp(name)}`) }).click();
   await picker.getByRole('button', { name: 'Add 1 Exercise' }).click();
   await expect(picker).toBeHidden();
 }
 
-export const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** `text` as a regular expression that matches exactly that text. */
+export const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Stands in for the analyzer: /health says yes, /analyze answers with `body`. */
 export async function mockAnalyzer(page: Page, status: number, body: unknown): Promise<string[]> {
@@ -168,6 +178,8 @@ export interface ConnectorMock {
   answers: Record<string, { status: number; json: unknown }>;
   /** Garmin wants a verification code before it lets anyone in. */
   garminNeedsCode: boolean;
+  /** The service of every request to send a workout, answered or not. */
+  attempts: string[];
   /** Every workout that was posted, in order. */
   exports: { target: string; body: { unit: string; effort: string; workout: { id: string; name: string; exercises: { name: string; sets: unknown[] }[] } } }[];
   /** Every body posted to /garmin/connect. */
@@ -186,17 +198,19 @@ export async function mockConnections(page: Page, connected: { strava?: boolean;
     },
     answers: {},
     garminNeedsCode: false,
+    attempts: [],
     exports: [],
     garminLogins: [],
   };
-  const answer = (route: Parameters<Parameters<Page['route']>[1]>[0], status: number, json: unknown, headers: Record<string, string> = {}) =>
+  const answer = (route: Route, status: number, json: unknown, headers: Record<string, string> = {}) =>
     (mock.online ? route.fulfill({ status, json, headers }) : route.abort());
 
   await page.route('**/health', (route) => answer(route, 200, { ok: true }));
   await page.route('**/connections', (route) => answer(route, 200, mock.services));
   await page.route(/\/exports\/(strava|garmin)$/, (route) => {
-    if (!mock.online) return route.abort();
     const target = route.request().url().split('/').pop()!;
+    mock.attempts.push(target);
+    if (!mock.online) return route.abort();
     mock.exports.push({ target, body: JSON.parse(route.request().postData() ?? '{}') });
     const number = mock.exports.length;
     const fallback = { status: 200, json: { id: String(number), url: `https://example.org/${target}/activity/${number}`, already: false } };

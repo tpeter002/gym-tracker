@@ -1,11 +1,15 @@
+import { signal } from './signal';
+import { getState } from './store';
 import { MODEL_PROVIDERS } from './types';
-import type { ExerciseSuggestion, ModelProvider, Settings } from './types';
-import type { AnalysisResult } from './videos';
+import type { AnalysisResult, ExerciseSuggestion, ModelProvider, Settings } from './types';
 
 // Client for the analyzer service in ../server (download → frames → a vision model).
 
 /** Message is written for the person using the app. */
 export class AnalyzerError extends Error {}
+
+/** The request never got an answer from an analyzer, so nothing was tried and trying again costs nothing. */
+export class AnalyzerUnreachable extends AnalyzerError {}
 
 /**
  * Where a request goes. With no address set, the analyzer is taken to be the
@@ -39,7 +43,43 @@ function unreachableMessage(address: string): string {
     : "There's no analyzer at this site. Start it on your Mac and open the app from its address, or set the address in Settings.";
 }
 
+/** A static host may answer any path with its own page; only JSON is the analyzer speaking. */
 const isJSON = (response: Response) => (response.headers.get('content-type') ?? '').includes('json');
+
+export interface AnalyzerAnswer {
+  status: number;
+  /** null when the answer said it was JSON and wasn't. */
+  body: Record<string, unknown> | null;
+  headers: Headers;
+}
+
+/**
+ * One request to the analyzer the app is set to use, for everything but an
+ * analysis (which has errors of its own to report). null when no analyzer answered.
+ */
+export async function askAnalyzer(path: string, init?: RequestInit): Promise<AnalyzerAnswer | null> {
+  try {
+    const address = analyzerEndpoint(getState().settings.analyzerURL, path, document.baseURI);
+    const response = await fetch(address, { cache: 'no-store', signal: AbortSignal.timeout(60_000), ...init });
+    if (!isJSON(response)) return null;
+    const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    return { status: response.status, body, headers: response.headers };
+  } catch {
+    return null;
+  }
+}
+
+export const postToAnalyzer = (path: string, body?: unknown) =>
+  askAnalyzer(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) });
+
+/** Whether the analyzer answered when last asked; null until the first check. */
+export const analyzerOnline = signal<boolean | null>(null);
+
+export async function checkAnalyzer(): Promise<boolean> {
+  const online = await isReachable(getState().settings.analyzerURL);
+  analyzerOnline.set(online);
+  return online;
+}
 const text = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value.trim() : null);
 
 const isProvider = (value: unknown): value is ModelProvider => (MODEL_PROVIDERS as readonly unknown[]).includes(value);
@@ -62,8 +102,6 @@ export function modelChoice(settings: Settings): ModelChoice | null {
 
 /** What an analyzer says about the model services it can use. */
 export interface AnalyzerInfo {
-  /** The service it uses when the app doesn't choose; null if it didn't say. */
-  defaultProvider: ModelProvider | null;
   /** Empty for an analyzer from before models were selectable — it ignores the choice. */
   providers: { id: ModelProvider; defaultModel: string; hasKey: boolean }[];
 }
@@ -79,7 +117,6 @@ export async function analyzerInfo(address: string): Promise<AnalyzerInfo | null
     const body = (await response.json()) as Record<string, unknown>;
     const listed = Array.isArray(body.providers) ? (body.providers as Record<string, unknown>[]) : [];
     return {
-      defaultProvider: isProvider(body.default_provider) ? body.default_provider : null,
       providers: listed.flatMap((item) => (item && isProvider(item.id)
         ? [{ id: item.id, defaultModel: text(item.default_model) ?? '', hasKey: item.has_key === true }]
         : [])),
@@ -112,18 +149,8 @@ export async function listModels(address: string, provider: ModelProvider): Prom
   }
 }
 
-export async function isReachable(address: string): Promise<boolean> {
-  try {
-    const response = await fetch(analyzerEndpoint(address, 'health', document.baseURI), {
-      cache: 'no-store',
-      signal: AbortSignal.timeout(5000),
-    });
-    // A static host may answer any path with its index page; only JSON is the analyzer.
-    return response.ok && isJSON(response);
-  } catch {
-    return false;
-  }
-}
+/** Whether there is an analyzer at an address — which may not be the one in Settings yet, as when testing a typed one. */
+export const isReachable = async (address: string): Promise<boolean> => (await analyzerInfo(address)) !== null;
 
 function readSuggestion(raw: unknown): ExerciseSuggestion | null {
   if (typeof raw !== 'object' || raw === null) return null;
@@ -165,9 +192,9 @@ export async function analyze(
     if (error instanceof DOMException && error.name === 'TimeoutError') {
       throw new AnalyzerError('The analyzer took too long to answer. Try again.');
     }
-    throw new AnalyzerError(unreachableMessage(address));
+    throw new AnalyzerUnreachable(unreachableMessage(address));
   }
-  if (!isJSON(response)) throw new AnalyzerError(unreachableMessage(address));
+  if (!isJSON(response)) throw new AnalyzerUnreachable(unreachableMessage(address));
 
   const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
   if (!response.ok) {

@@ -97,6 +97,18 @@ describe('the standards', () => {
     expect(ranked.size).toBe(STANDARDS.length); // no exercise is listed twice
   });
 
+  it('never measure a built-in exercise as something its name merely contains', () => {
+    // "Bicycle Crunch" contains "Crunch", which has a standard; left out on purpose means left out.
+    for (const name of UNRANKED) {
+      const item = LIBRARY.find((candidate) => candidate.name === name)!;
+      expect(standardFor(item), name).toBeNull();
+    }
+    const state = lifter(80);
+    log(state, 'Bicycle Crunch', [[null, 30]]);
+    log(state, 'Crunch', [[null, 30]]);
+    expect(liftRanks(state).map((rank) => rank.exercise.name)).toEqual(['Crunch']);
+  });
+
   it('are numbers that can be climbed', () => {
     for (const standard of STANDARDS) {
       if (standard.kind === 'weight') {
@@ -368,6 +380,12 @@ describe('a rank in words', () => {
     expect(describeLift(rankOf(state, 'Squat (Barbell)')!, 'kg').next).toBe(`${local(140.5)} kg for Gold III`);
     // In pounds: 104 kg is 229.3 lb, so 230.
     expect(describeLift(rankOf(state, 'Bench Press (Barbell)')!, 'lb')).toEqual({ best: `Est. 1RM ${local(220.5)} lb`, next: '230 lb for Gold III' });
+  });
+
+  it('says that a dumbbell lift is counted per dumbbell', () => {
+    const state = lifter(80);
+    log(state, 'Bench Press (Dumbbell)', [[40, 1]]);
+    expect(describeLift(rankOf(state, 'Bench Press (Dumbbell)')!, 'kg').best).toBe('Est. 1RM 40 kg per dumbbell');
   });
 
   it('counts reps for bodyweight exercises', () => {

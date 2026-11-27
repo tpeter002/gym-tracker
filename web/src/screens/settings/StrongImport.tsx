@@ -31,11 +31,7 @@ export function StrongImportPage({ state }: { state: AppState }) {
 
   const runImport = () => {
     if (!parsed) return;
-    let result: ImportSummary | null = null;
-    update((draft) => {
-      result = applyStrongImport(draft, parsed, parsed.headerUnit ?? fileUnit);
-    });
-    setSummary(result);
+    setSummary(update((draft) => applyStrongImport(draft, parsed, parsed.headerUnit ?? fileUnit)));
   };
 
   const first = parsed?.workouts[0];
@@ -80,6 +76,7 @@ export function StrongImportPage({ state }: { state: AppState }) {
             <ValueRow label="Exercises" value={exerciseNames(parsed).size} />
             <ValueRow label="Sets" value={setCount(parsed)} />
             {first && last && <ValueRow label="Period" value={`${fmtDate(first.date)} – ${fmtDate(last.date)}`} />}
+            {parsed.skippedRows > 0 && <ValueRow label="Rows that couldn't be read" value={parsed.skippedRows} />}
             {parsed.headerUnit === null && (
               <div className="row">
                 Weights in the file are in

@@ -1,6 +1,6 @@
-import { analyzerEndpoint } from './analyzer';
-import { checkAnalyzer } from './inbox';
-import { getState, signal, update } from './store';
+import { analyzerEndpoint, askAnalyzer, checkAnalyzer, postToAnalyzer as post } from './analyzer';
+import { signal } from './signal';
+import { getState, update } from './store';
 import { EXPORT_TARGETS } from './types';
 import type { AppState, ExportState, ExportTarget, Workout } from './types';
 
@@ -23,9 +23,6 @@ export const connections = signal<Connections | null>(null);
 /** "workout id:target" of the requests on their way. */
 export const sending = signal<ReadonlySet<string>>(new Set());
 
-const endpoint = (path: string) => analyzerEndpoint(getState().settings.analyzerURL, path, document.baseURI);
-const isJSON = (response: Response) => (response.headers.get('content-type') ?? '').includes('json');
-
 function readConnections(raw: unknown): Connections | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const body = raw as Record<string, unknown>;
@@ -42,20 +39,6 @@ function readConnections(raw: unknown): Connections | null {
   const garmin = read(body.garmin);
   return strava && garmin ? { strava, garmin } : null;
 }
-
-async function askAnalyzer(path: string, init?: RequestInit): Promise<{ status: number; body: Record<string, unknown> | null; needsCode: boolean } | null> {
-  try {
-    const response = await fetch(endpoint(path), { cache: 'no-store', signal: AbortSignal.timeout(60_000), ...init });
-    if (!isJSON(response)) return null; // a static host answering with its own page: no analyzer here
-    const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-    return { status: response.status, body, needsCode: response.headers.get('x-needs-code') === '1' };
-  } catch {
-    return null;
-  }
-}
-
-const post = (path: string, body?: unknown) =>
-  askAnalyzer(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) });
 
 const detail = (body: Record<string, unknown> | null, fallback: string) =>
   (typeof body?.detail === 'string' && body.detail ? body.detail : fallback);
@@ -75,7 +58,8 @@ export function stravaConnectAddress(address: string, pageURL: string, back: str
 
 export async function disconnect(target: ExportTarget): Promise<void> {
   const answer = await post(`${target}/disconnect`);
-  connections.set(answer && answer.status === 200 ? readConnections(answer.body) : connections.get());
+  // An answer that can't be read leaves what is shown as it was, as after connecting.
+  connections.set((answer && answer.status === 200 ? readConnections(answer.body) : null) ?? connections.get());
 }
 
 export interface GarminAnswer {
@@ -93,7 +77,9 @@ export async function connectGarmin(email: string, password: string, code = ''):
     connections.set(readConnections(answer.body) ?? connections.get());
     return { connected: true, needsCode: false, message: null };
   }
-  return { connected: false, needsCode: answer.needsCode, message: detail(answer.body, `Garmin sign-in failed (${answer.status}).`) };
+  // The analyzer says "now the verification code" with a header on its refusal.
+  const needsCode = answer.headers.get('x-needs-code') === '1';
+  return { connected: false, needsCode, message: detail(answer.body, `Garmin sign-in failed (${answer.status}).`) };
 }
 
 // --- which workouts are due, and what is sent -----------------------------------
@@ -112,7 +98,7 @@ export function queueExports(state: AppState, workoutId: string, now = Date.now(
   }
 }
 
-export function setExport(state: AppState, workoutId: string, target: ExportTarget, next: ExportState): void {
+function setExport(state: AppState, workoutId: string, target: ExportTarget, next: ExportState): void {
   const workout = state.workouts.find((candidate) => candidate.id === workoutId);
   if (workout) workout.exports = { ...workout.exports, [target]: next };
 }
@@ -138,7 +124,7 @@ export function exportBody(state: AppState, workout: Workout): Record<string, un
       started_at: workout.startedAt,
       ended_at: workout.endedAt ?? workout.startedAt,
       // What the clock on this device showed, which is what the services ask for.
-      utc_offset_minutes: -new Date(workout.startedAt).getTimezoneOffset(),
+      utc_offset_minutes: 0 - new Date(workout.startedAt).getTimezoneOffset(), // "0 -", so UTC gives 0 rather than -0
       notes: workout.notes,
       exercises: workout.entries.map((entry) => ({
         name: entry.exerciseName,
@@ -173,10 +159,14 @@ export async function sendWorkout(workoutId: string, target: ExportTarget): Prom
     const now = Date.now();
     let next: ExportState;
     if (answer && answer.status === 200) {
-      next = { status: 'sent', at: now, url: typeof answer.body?.url === 'string' ? answer.body.url : undefined };
+      next = { status: 'sent', at: now };
+      // Kept only if it is an https address, the same rule a backup's copy of it has to pass.
+      if (typeof answer.body?.url === 'string' && /^https:\/\//.test(answer.body.url)) next.url = answer.body.url;
     } else if (!answer || TEMPORARY.has(answer.status)) {
       // Stays in the queue; the next sweep tries again.
-      next = { status: 'waiting', at: workout.exports?.[target]?.at ?? now, error: answer ? detail(answer.body, '') || undefined : undefined };
+      next = { status: 'waiting', at: workout.exports?.[target]?.at ?? now };
+      const reason = answer ? detail(answer.body, '') : '';
+      if (reason) next.error = reason;
     } else {
       next = { status: 'failed', at: now, error: detail(answer.body, `The analyzer returned an error (${answer.status}).`) };
       // A refused connection changes what Settings should show.

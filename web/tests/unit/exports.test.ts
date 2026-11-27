@@ -13,6 +13,8 @@ import { addExercise, finishWorkout, startEmpty } from '../../src/lib/workouts';
 // queued, what the analyzer is sent, and what is recorded about the outcome.
 
 const START = new Date(2026, 10, 26, 18, 0).getTime();
+/** This machine's clock against UTC that evening, worked out without the function the app uses: local 18:00 minus the same wall-clock time read as UTC. */
+const OFFSET = (Date.UTC(2026, 10, 26, 18, 0) - START) / 60_000;
 
 /** A state with one finished workout: bench press (a warm-up, two working sets, one left unticked) and pull ups. */
 function finished(): { state: AppState; workout: Workout } {
@@ -98,7 +100,7 @@ describe('what the analyzer is sent', () => {
         name: 'Push',
         started_at: START,
         ended_at: START + 62 * 60_000,
-        utc_offset_minutes: -new Date(START).getTimezoneOffset(),
+        utc_offset_minutes: OFFSET,
         notes: 'Felt strong.',
         exercises: [
           { name: 'Bench Press (Barbell)', muscle: 'chest', sets: [
@@ -236,6 +238,8 @@ describe('talking to the analyzer', () => {
     expect(exported()).toEqual({
       strava: { status: 'failed', at: expect.any(Number), error: 'Strava isn’t connected; connect again in the app under Settings → Connections.' },
     });
+    // A refused connection is news for Settings: the connections are asked for again.
+    await vi.waitFor(() => expect(connections.get()?.strava.connected).toBe(false));
     await sendWaiting();
     expect(posted('/exports/strava')).toHaveLength(1); // a failed workout is not retried by itself
 
@@ -243,6 +247,30 @@ describe('talking to the analyzer', () => {
     analyzer({ '/exports/strava': () => json({ id: '9', url: 'https://www.strava.com/activities/9' }) });
     await sendWorkout(workout.id, 'strava');
     expect(exported()!.strava!.status).toBe('sent');
+  });
+
+  it('keeps the link only when it is an https address, and adds no empty fields', async () => {
+    for (const url of ['javascript:alert(1)', 'http://www.strava.com/activities/3', 'not a link', 42, null]) {
+      analyzer({ '/exports/strava': () => json({ id: '3', url }) });
+      await sendWorkout(workout.id, 'strava');
+      const state = exported()!.strava!;
+      expect(state).toEqual({ status: 'sent', at: expect.any(Number) });
+      expect('url' in state).toBe(false);
+    }
+    // And a workout still waiting for an answer has no "error" until there is one to tell.
+    replaceState({ ...getState(), workouts: getState().workouts.map((item) => ({ ...item, exports: { strava: { status: 'waiting' as const, at: 5000 } } })) });
+    analyzer({ '/exports/strava': () => json({}, 503) });
+    await sendWaiting();
+    expect(exported()).toEqual({ strava: { status: 'waiting', at: 5000 } });
+    expect('error' in exported()!.strava!).toBe(false);
+  });
+
+  it('says the same about the time zone on any machine', () => {
+    // The app sends minutes east of UTC; a machine on UTC must send 0, which JSON can carry, not -0.
+    const sent = exportBody(getState(), workout) as { workout: { utc_offset_minutes: number } };
+    expect(Object.is(sent.workout.utc_offset_minutes, -0)).toBe(false);
+    expect(JSON.parse(JSON.stringify(sent))).toEqual(sent);
+    expect(sent.workout.utc_offset_minutes).toBe(OFFSET);
   });
 
   it('does not send the same workout twice at once', async () => {

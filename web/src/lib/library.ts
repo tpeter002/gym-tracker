@@ -1,12 +1,18 @@
 import type { Equipment, MuscleGroup } from './types';
 
-/** Bump when adding lines below; missing ones get inserted on the next visit. */
+/**
+ * Bump when adding lines below, and end each new line with the new number
+ * ("Name|muscle|equipment|2"): that is how a database that has seen the older
+ * list is offered only the additions.
+ */
 export const LIBRARY_VERSION = 1;
 
 export interface LibraryItem {
   name: string;
   muscle: MuscleGroup;
   equipment: Equipment;
+  /** The LIBRARY_VERSION this exercise was added in. */
+  since: number;
 }
 
 // Names follow the "Movement (Equipment)" convention so a Strong export lines up with them.
@@ -214,6 +220,6 @@ Battle Ropes|fullBody|other
 export const LIBRARY: LibraryItem[] = RAW.trim()
   .split('\n')
   .map((line) => {
-    const [name, muscle, equipment] = line.split('|').map((part) => part.trim());
-    return { name, muscle: muscle as MuscleGroup, equipment: equipment as Equipment };
+    const [name, muscle, equipment, since] = line.split('|').map((part) => part.trim());
+    return { name, muscle: muscle as MuscleGroup, equipment: equipment as Equipment, since: since ? Number(since) : 1 };
   });

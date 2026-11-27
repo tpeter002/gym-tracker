@@ -1,10 +1,9 @@
 import { CircleCheck, CircleX, Download, FolderInput, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { changeSettings } from '../../lib/actions';
-import { isBlockedAsMixedContent, isReachable } from '../../lib/analyzer';
+import { analyzerOnline, isBlockedAsMixedContent, isReachable } from '../../lib/analyzer';
 import { BackupError, parseBackup, restoreBackup } from '../../lib/backup';
 import type { Backup } from '../../lib/backup';
-import { analyzerOnline } from '../../lib/inbox';
 import { STANDARDS_OPTIONS } from '../../lib/ranks';
 import { getState, replaceState } from '../../lib/store';
 import type { AppState } from '../../lib/types';

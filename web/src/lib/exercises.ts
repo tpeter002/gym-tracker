@@ -1,5 +1,6 @@
 import { uid } from './ids';
 import { LIBRARY, LIBRARY_VERSION } from './library';
+import type { LibraryItem } from './library';
 import { equipmentTitle, muscleTitle } from './types';
 import type { AppState, Equipment, Exercise, MuscleGroup } from './types';
 
@@ -28,19 +29,23 @@ export function newExercise(name: string, muscle: MuscleGroup, equipment: Equipm
   };
 }
 
-/** Adds built-in exercises that aren't there yet. */
-export function seedLibrary(state: AppState): void {
-  // The version keeps built-ins you deleted from coming back; an empty list
-  // means the database is new, whatever the version says.
-  if (state.libraryVersion >= LIBRARY_VERSION && state.exercises.length > 0) return;
+/**
+ * Adds the built-in exercises this database hasn't been offered yet: all of
+ * them when it is new, otherwise only the ones the list has gained since. A
+ * built-in you deleted or renamed is not offered twice, so it stays gone.
+ */
+export function seedLibrary(state: AppState, library: readonly LibraryItem[] = LIBRARY, version = LIBRARY_VERSION): void {
+  // An empty list means the database is new, whatever version it claims.
+  const isNew = state.exercises.length === 0;
+  if (!isNew && state.libraryVersion >= version) return;
   const known = new Set(state.exercises.map((exercise) => normalizeName(exercise.name)));
-  for (const item of LIBRARY) {
+  for (const item of library) {
     const key = normalizeName(item.name);
-    if (known.has(key)) continue;
+    if (known.has(key) || (!isNew && item.since <= state.libraryVersion)) continue;
     known.add(key);
     state.exercises.push(newExercise(item.name, item.muscle, item.equipment, false));
   }
-  state.libraryVersion = LIBRARY_VERSION;
+  state.libraryVersion = version;
 }
 
 export interface ExerciseFields {
@@ -59,10 +64,14 @@ export function saveExercise(state: AppState, fields: ExerciseFields, id?: strin
     exercise.name = name;
     exercise.muscle = fields.muscle;
     exercise.equipment = fields.equipment;
-    // History rows keep their own copy of the name; keep them in step.
     for (const workout of state.workouts) {
       for (const entry of workout.entries) {
-        if (entry.exerciseId === exercise.id) entry.exerciseName = name;
+        if (entry.exerciseId !== exercise.id) continue;
+        // History rows keep their own copy of the name; keep them in step.
+        entry.exerciseName = name;
+        // No longer done with dumbbells: "both together" would go on halving its
+        // weights, with the button that says otherwise gone from the screen.
+        if (exercise.equipment !== 'dumbbell') delete entry.bothDumbbells;
       }
     }
   } else {
@@ -122,7 +131,8 @@ const MUSCLE_RULES: [MuscleGroup, string[]][] = [
 
 /** Best-effort grouping for exercises that aren't in the built-in library. */
 export function guessMuscle(name: string): MuscleGroup {
-  const text = name.toLowerCase();
+  // Normalised, so "Pull-Up" and "Stiff-Leg Deadlift" read like the keywords, which are written with spaces.
+  const text = `${normalizeName(name)} `;
   return MUSCLE_RULES.find(([, keywords]) => keywords.some((keyword) => text.includes(keyword)))?.[0] ?? 'other';
 }
 

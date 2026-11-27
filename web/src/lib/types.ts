@@ -22,6 +22,16 @@ export function equipmentTitle(equipment: Equipment): string {
   return capitalize(equipment);
 }
 
+/** Leg day, push day, pull day: the part of the body a muscle belongs to, for the muscles that belong to one. */
+export const BODY_REGIONS = ['push', 'pull', 'legs'] as const;
+export type BodyRegion = (typeof BODY_REGIONS)[number];
+export const BODY_REGION_TITLES: Record<BodyRegion, string> = { push: 'Push', pull: 'Pull', legs: 'Legs' };
+export const REGION_OF: Partial<Record<MuscleGroup, BodyRegion>> = {
+  quads: 'legs', hamstrings: 'legs', glutes: 'legs', calves: 'legs',
+  chest: 'push', shoulders: 'push', triceps: 'push',
+  back: 'pull', biceps: 'pull', forearms: 'pull',
+};
+
 export type WeightUnit = 'kg' | 'lb';
 export type EffortScale = 'rpe' | 'rir';
 /** Whose strength standards the ranks are measured against. */
@@ -69,7 +79,7 @@ export interface Exercise {
   videoURL: string | null;
   /** The saved video it was added from; null once that video is deleted. */
   videoId: string | null;
-  /** Saved from a video and not performed yet — surfaced when picking exercises. */
+  /** On the to-try list — put there by a saved video or by hand — until it is done in a workout. */
   wantToTry: boolean;
   createdAt: number;
 }
@@ -131,6 +141,16 @@ export interface ExerciseSuggestion {
   notes: string | null;
   /** Sets × reps when the video prescribes them. */
   setsReps: string | null;
+}
+
+/** What the analyzer says about a video. */
+export interface AnalysisResult {
+  title: string | null;
+  caption: string | null;
+  thumbnail: string | null;
+  exercises: ExerciseSuggestion[];
+  /** The model that answered, when the analyzer says (older analyzers don't). */
+  model?: string | null;
 }
 
 /** A workout clip saved from Instagram, TikTok, YouTube… */

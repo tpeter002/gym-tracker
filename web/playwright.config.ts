@@ -19,6 +19,8 @@ export default defineConfig({
     command: `npm run build && npm run preview -- --port ${PORT} --strictPort`,
     url: `http://localhost:${PORT}`,
     reuseExistingServer: false,
+    // The build type-checks first, and tsc reports on stdout: without this a type error would stop the run without a word.
+    stdout: 'pipe',
     // See vite.config.ts: keeps a real analyzer on this machine out of the tests.
     env: { GYM_TRACKER_NO_ANALYZER_PROXY: '1' },
   },

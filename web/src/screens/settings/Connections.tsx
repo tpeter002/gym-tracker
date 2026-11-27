@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { connectGarmin, connections, disconnect, loadConnections, stravaConnectAddress } from '../../lib/exports';
-import { update, useSignal } from '../../lib/store';
+import { useSignal } from '../../lib/signal';
+import { update } from '../../lib/store';
 import type { ExportTarget, Settings as SettingsValues } from '../../lib/types';
 import { Spinner, Switch } from '../../ui/controls';
 import { Section, ValueRow } from '../../ui/layout';

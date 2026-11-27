@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { RANK_SETTLE_MS, RANK_UP_SHOWN_MS } from '../../src/lib/timing';
 import { addExercise, seed } from './helpers';
 
 // Ranks: every lift's standing against strength standards, the overall rank,
@@ -28,7 +29,7 @@ async function seedRanked(page: Page): Promise<void> {
  * shouldn't have happened went away by itself.
  */
 async function expectNoRankUp(page: Page): Promise<void> {
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(RANK_SETTLE_MS + 900);
   expect(await rankUp(page).count()).toBe(0);
 }
 
@@ -133,6 +134,7 @@ test("the same lifts stand higher against the women's standards, and Off hides r
 
   await choose(page, 'Off');
   await page.goto('/#/ranks');
+  await expect(page.getByText(/Choose the standards to measure against to see yours\./)).toBeVisible(); // the Ranks page, not still Settings
   await expect(overall(page)).toHaveCount(0);
   await expect(lifts(page)).toHaveCount(0);
   await page.goto('/#/exercises');
@@ -178,12 +180,12 @@ test('a set that lifts a rank is celebrated once, and the badge follows', async 
   await expect(bench.getByRole('img', { name: 'Platinum III' })).toBeVisible();
 
   // It leaves by itself.
-  await expect(rankUp(page)).toHaveCount(0, { timeout: 8000 });
+  await expect(rankUp(page)).toHaveCount(0, { timeout: RANK_UP_SHOWN_MS + 3500 });
 
   // Unticking and ticking the same set again is not a second climb…
   await bench.getByRole('button', { name: 'Mark set as not done' }).click();
   await expect(bench.getByRole('img', { name: 'Gold III' })).toBeVisible();
-  await page.waitForTimeout(1000); // long enough for the lower rank to have settled
+  await page.waitForTimeout(RANK_SETTLE_MS + 400); // long enough for the lower rank to have settled
   await bench.getByRole('button', { name: 'Mark set as done' }).first().click();
   await expect(bench.getByRole('img', { name: 'Platinum III' })).toBeVisible();
   // …and neither is a set that changes nothing.
@@ -195,9 +197,9 @@ test('a set that lifts a rank is celebrated once, and the badge follows', async 
   await logSet(page, 'Incline Bench Press (Barbell)', '60', '5');
   await expect(rankUp(page)).toContainText('First rank');
   await expect(rankUp(page)).toContainText('Incline Bench Press (Barbell)');
-  // A tap sends it away.
-  await rankUp(page).click();
-  await expect(rankUp(page)).toHaveCount(0);
+  // A tap sends it away — at once, so looked at once: it would leave by itself a few seconds later anyway.
+  await rankUp(page).getByRole('button').click();
+  expect(await rankUp(page).count()).toBe(0);
 
   // Once finished, the new rank is the lift's rank.
   await page.getByRole('button', { name: 'Finish' }).click();

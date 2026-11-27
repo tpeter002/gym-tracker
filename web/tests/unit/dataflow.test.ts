@@ -191,7 +191,9 @@ describe('exercise library', () => {
     ]);
     expect(names('db incline bench')).toEqual(['Incline Bench Press (Dumbbell)']);
     expect(names('zzz')).toEqual([]);
-    expect(searchExercises(state.exercises, '', 'calves').every((exercise) => exercise.muscle === 'calves')).toBe(true);
+    const calves = searchExercises(state.exercises, '', 'calves');
+    expect(calves.length).toBeGreaterThan(3);
+    expect(calves.every((exercise) => exercise.muscle === 'calves')).toBe(true);
   });
 });
 

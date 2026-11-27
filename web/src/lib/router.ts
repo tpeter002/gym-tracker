@@ -1,5 +1,5 @@
 import { useLayoutEffect } from 'react';
-import { signal, useSignal } from './store';
+import { signal, useSignal } from './signal';
 
 // Hash routes (#/history/abc), so the app works from any folder on any static
 // host. Each history entry carries an index: it tells "back" from "forward"
@@ -69,7 +69,16 @@ export function useRoute(): string[] {
   useLayoutEffect(() => {
     window.scrollTo(0, current.restored ? (scrollPositions.get(current.index) ?? 0) : 0);
   }, [current]);
-  return current.path.split('/').filter(Boolean).map(decodeURIComponent);
+  return current.path.split('/').filter(Boolean).map(decoded);
+}
+
+/** A hand-typed address can hold a stray "%"; that is a page that isn't there, not a reason to fall over. */
+function decoded(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }
 
 export const href = (path: string) => `#${path}`;

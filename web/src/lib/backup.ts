@@ -142,12 +142,21 @@ const readSuggestion = (raw: Raw): ExerciseSuggestion => ({
   setsReps: strOrNull(raw.setsReps),
 });
 
+/** Only an embedded image, as from the analyzer: a remote address in a file would be fetched every time the video is shown. */
+const embeddedImage = (value: unknown) => (typeof value === 'string' && value.startsWith('data:image/') ? value : null);
+
+/** The first record under each id; a file that repeats one would otherwise have the later copy silently replace the earlier. */
+function distinct<T extends { id: string }>(records: T[]): T[] {
+  const seen = new Set<string>();
+  return records.filter((record) => !seen.has(record.id) && seen.add(record.id));
+}
+
 const readVideo = (raw: Raw): SavedVideo => ({
   id: id(raw, 'video'),
   url: str(raw.url),
   title: str(raw.title),
   caption: str(raw.caption),
-  thumbnail: strOrNull(raw.thumbnail),
+  thumbnail: embeddedImage(raw.thumbnail),
   addedAt: time(raw.addedAt, 'video date'),
   analyzedAt: numOrNull(raw.analyzedAt),
   analyzedBy: strOrNull(raw.analyzedBy),
@@ -162,17 +171,17 @@ export function parseBackup(text: string): Backup {
   } catch {
     parsed = null;
   }
-  if (!isObject(parsed) || parsed.app !== BACKUP_APP || !isObject(parsed.data)) {
+  if (!isObject(parsed) || parsed.app !== BACKUP_APP || typeof parsed.version !== 'number' || !isObject(parsed.data)) {
     throw new BackupError("That file isn't a Gym Tracker backup.");
   }
-  if (typeof parsed.version !== 'number' || parsed.version > BACKUP_VERSION) {
+  if (parsed.version > BACKUP_VERSION) {
     throw new BackupError('That backup was made by a newer version of Gym Tracker.');
   }
   const data = parsed.data;
-  const workouts = list(data.workouts, 'workouts', readWorkout);
-  // Only one workout can be in progress; a file claiming more gets the extra ones closed.
+  const workouts = distinct(list(data.workouts, 'workouts', readWorkout));
+  // Only one workout can be in progress; a file claiming more gets all but the newest closed.
   let seenActive = false;
-  for (const workout of workouts.sort((a, b) => b.startedAt - a.startedAt)) {
+  for (const workout of [...workouts].sort((a, b) => b.startedAt - a.startedAt)) {
     if (workout.endedAt !== null) continue;
     if (seenActive) workout.endedAt = workout.startedAt;
     seenActive = true;
@@ -180,10 +189,10 @@ export function parseBackup(text: string): Backup {
   return {
     exportedAt: numOrNull(parsed.exportedAt),
     state: {
-      exercises: list(data.exercises, 'exercises', readExercise),
+      exercises: distinct(list(data.exercises, 'exercises', readExercise)),
       workouts,
-      bodyWeights: list(data.bodyWeights, 'body weights', readBodyWeight),
-      videos: list(data.videos, 'videos', readVideo),
+      bodyWeights: distinct(list(data.bodyWeights, 'body weights', readBodyWeight)),
+      videos: distinct(list(data.videos, 'videos', readVideo)),
       // Keys and the inbox code are never taken from a file, whatever it claims to hold.
       settings: { ...normalizeSettings(data.settings), ...ownToThisBrowser(defaultSettings()) },
       libraryVersion: numOrNull(data.libraryVersion) ?? 0,

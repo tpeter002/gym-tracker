@@ -1,9 +1,11 @@
 import { CirclePlus, ClipboardPaste, Hand, Play, Plus, Sparkles, SquarePlay, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { byName } from '../lib/exercises';
-import { addVideoLink, analysisErrors, analyzerOnline, analyzeVideo, analyzing, checkAnalyzer } from '../lib/inbox';
+import { analyzerOnline, checkAnalyzer } from '../lib/analyzer';
+import { addVideoLink, analysisErrors, analyzeVideo, analyzing } from '../lib/identify';
 import { goBack, navigate } from '../lib/router';
-import { update, useSignal } from '../lib/store';
+import { useSignal } from '../lib/signal';
+import { update } from '../lib/store';
 import type { AppState, SavedVideo } from '../lib/types';
 import { fmtCount, fmtDate } from '../lib/units';
 import {

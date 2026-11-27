@@ -48,6 +48,7 @@ test('a finished workout goes to the service that is switched on, and shows wher
   await expect(page.getByRole('region', { name: 'Sent to' }).getByRole('link', { name: 'Open on Strava' })).toBeVisible();
   await page.goto('/#/');
   await page.goto('/#/history');
+  await page.waitForLoadState('networkidle'); // whatever it was going to send, it has sent by now
   expect(mock.exports).toHaveLength(2);
 });
 
@@ -60,7 +61,7 @@ test('with the analyzer out of reach a workout waits, and goes out when it is ba
   await logAndFinishWorkout(page);
   await openLatestWorkout(page);
   await expect(page.getByRole('region', { name: 'Sent to' })).toContainText('Waiting to be sent');
-  expect(mock.exports).toHaveLength(0);
+  expect(mock.attempts).toEqual([]); // it doesn't even try: the analyzer's /health goes unanswered first
 
   mock.online = true; // home again: opening the app is enough
   await page.reload();
@@ -81,7 +82,8 @@ test('a refusal is shown with its reason and can be tried again', async ({ page 
   await expect(sentTo).toContainText("Strava: Strava didn't take the workout (400) (Bad Request)");
   await page.reload(); // a refused workout is not retried by itself
   await expect(page.getByRole('region', { name: 'Sent to' })).toContainText('Not sent');
-  expect(mock.exports).toHaveLength(1);
+  await page.waitForLoadState('networkidle');
+  expect(mock.attempts).toHaveLength(1);
 
   delete mock.answers.strava;
   await page.getByRole('region', { name: 'Sent to' }).getByRole('button', { name: 'Try Again' }).click();
@@ -159,24 +161,24 @@ test('connecting Garmin takes the password once, and a code when Garmin asks for
   await expect(garmin.getByRole('button', { name: 'Connect Garmin' })).toBeVisible();
 });
 
-test('connecting Strava leaves for Strava and comes back with the outcome', async ({ page }) => {
+test('connecting Strava leaves for Strava and comes back with the outcome', async ({ page, baseURL }) => {
   const mock = await mockConnections(page);
   await page.goto('/#/settings');
   const strava = page.getByRole('region', { name: 'Strava' });
   const link = strava.getByRole('link', { name: 'Connect Strava' });
-  await expect(link).toHaveAttribute('href', 'http://localhost:4173/strava/connect?back=%2F%23%2Fsettings');
+  await expect(link).toHaveAttribute('href', `${baseURL}/strava/connect?back=%2F%23%2Fsettings`);
 
   // Back from Strava having said no…
   await page.goto('/?strava=denied#/settings');
   await expect(page.getByRole('region', { name: 'Strava' })).toContainText("Strava wasn't connected: the request was declined.");
-  await expect(page).toHaveURL('http://localhost:4173/#/settings'); // the marker is gone, so a reload doesn't repeat the message
+  await expect(page).toHaveURL(`${baseURL}/#/settings`); // the marker is gone, so a reload doesn't repeat the message
 
   // …and having said yes.
   mock.services.strava = { configured: true, connected: true, account: 'Sam Lifter' };
   await page.goto('/?strava=connected#/settings');
   await expect(page.getByRole('region', { name: 'Strava' })).toContainText('Strava is connected.');
   await expect(page.getByRole('region', { name: 'Strava' })).toContainText('Sam Lifter');
-  await expect(page).toHaveURL('http://localhost:4173/#/settings');
+  await expect(page).toHaveURL(`${baseURL}/#/settings`);
 
   await page.getByRole('region', { name: 'Strava' }).getByRole('button', { name: 'Disconnect Strava' }).click();
   await expect(page.getByRole('region', { name: 'Strava' }).getByRole('link', { name: 'Connect Strava' })).toBeVisible();

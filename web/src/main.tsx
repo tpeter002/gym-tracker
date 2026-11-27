@@ -27,13 +27,13 @@ function Crashed() {
 
 /** Without one of these, React answers an error in any screen by removing the whole page. */
 class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
-  state = { failed: false };
+  override state = { failed: false };
 
   static getDerivedStateFromError() {
     return { failed: true };
   }
 
-  render() {
+  override render() {
     return this.state.failed ? <Crashed /> : this.props.children;
   }
 }

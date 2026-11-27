@@ -1,4 +1,5 @@
-import type { AppState, Exercise, MuscleGroup, Workout } from './types';
+import { REGION_OF } from './types';
+import type { AppState, Exercise, Workout } from './types';
 import { activeWorkout, finishedWorkouts } from './workouts';
 
 // What to do next: the routine that is due, and the saved-video exercises
@@ -11,7 +12,7 @@ const ROUTINE_WINDOW = 56 * DAY;
 const SAME_ROUTINE_OVERLAP = 0.5;
 
 /** Names given by this app (or Strong) to a workout nobody named; they say nothing about what was trained. */
-const GENERIC_NAME = /^((early )?morning|midday|lunch|afternoon|evening|night)?\s*workout$/i;
+export const GENERIC_NAME = /^((early )?morning|midday|lunch|afternoon|evening|night)?\s*workout$/i;
 
 /** A workout the person keeps coming back to. */
 export interface Routine {
@@ -74,18 +75,13 @@ export function nextWorkout(state: AppState, now = Date.now()): Routine | null {
   return found.reduce((due, routine) => (routine.latest.startedAt < due.latest.startedAt ? routine : due));
 }
 
-// Leg day, push day, pull day: a to-try exercise fits a workout that is
-// largely about the same part of the body, even if not the very same muscle.
-export const REGIONS: Partial<Record<MuscleGroup, 'legs' | 'push' | 'pull'>> = {
-  quads: 'legs', hamstrings: 'legs', glutes: 'legs', calves: 'legs',
-  chest: 'push', shoulders: 'push', triceps: 'push',
-  back: 'pull', biceps: 'pull', forearms: 'pull',
-};
+// A to-try exercise fits a workout that is largely about the same part of the
+// body (REGION_OF), even if not the very same muscle.
 /** How much of a workout has to be about a body region for that region's exercises to fit it. */
 const REGION_SHARE = 1 / 3;
 
 /** Newest first; by name where that doesn't decide, so the order never depends on how storage hands records back. */
-export const byNewest = (a: Exercise, b: Exercise) => b.createdAt - a.createdAt || a.name.localeCompare(b.name);
+export const byNewest = (a: Exercise, b: Exercise) => b.createdAt - a.createdAt || a.name.localeCompare(b.name, 'en');
 
 /**
  * Exercises still waiting to be tried that suit `workout`: it already trains
@@ -102,10 +98,10 @@ export function toTryFor(state: AppState, workout: Workout): Exercise[] {
 
   const included = new Set(present.map((exercise) => exercise.id));
   const muscles = new Set(present.map((exercise) => exercise.muscle));
-  const share = (region: string) => present.filter((exercise) => REGIONS[exercise.muscle] === region).length / present.length;
+  const share = (region: string) => present.filter((exercise) => REGION_OF[exercise.muscle] === region).length / present.length;
   const fits = (exercise: Exercise) => {
     if (muscles.has(exercise.muscle)) return true;
-    const region = REGIONS[exercise.muscle];
+    const region = REGION_OF[exercise.muscle];
     return region !== undefined && share(region) >= REGION_SHARE;
   };
   return state.exercises

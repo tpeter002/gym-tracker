@@ -8,12 +8,12 @@ import { equipmentTitle, muscleTitle } from '../lib/types';
 import type { AppState, Exercise, MuscleGroup } from '../lib/types';
 import { effortLabel, fmtDate, fromKg, weightText } from '../lib/units';
 import { webLink } from '../lib/videos';
-import { estimatedOneRepMax, sessionsFor } from '../lib/workouts';
+import { dumbbellWeight, estimatedOneRepMax, sessionsFor, takesDumbbells } from '../lib/workouts';
 import { LineChart } from '../ui/Chart';
 import { MuscleFilterBar, SearchField } from '../ui/controls';
 import { Link, LinkRow, Page, Section, ValueRow } from '../ui/layout';
 import { ConfirmDialog, Menu } from '../ui/overlays';
-import { ExerciseLabel } from '../ui/parts';
+import { DumbbellToggle, ExerciseLabel } from '../ui/parts';
 import { RankBadge, RankProgress } from '../ui/RankBadge';
 import { ExerciseEditor } from './ExerciseEditor';
 import { setText } from './History';
@@ -76,7 +76,17 @@ export function ExerciseDetail({ state, exercise }: { state: AppState; exercise:
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const sessions = useMemo(() => sessionsFor(state.workouts, exercise.id), [state.workouts, exercise.id]);
-  const workingSets = sessions.flatMap((session) => session.entry.sets).filter((set) => set.isDone && !set.isWarmup);
+  const hasDumbbells = takesDumbbells(exercise);
+  // Dumbbell sessions may have been typed in either way; records and the chart
+  // read them all the way the latest one was, so the numbers can be compared.
+  const showBoth = hasDumbbells && sessions[0]?.entry.bothDumbbells === true;
+  const working = sessions.map((session) => ({
+    time: session.workout.startedAt,
+    sets: session.entry.sets
+      .filter((set) => set.isDone && !set.isWarmup)
+      .map((set) => ({ ...set, weight: dumbbellWeight(set.weight, session.entry.bothDumbbells === true, showBoth) })),
+  }));
+  const workingSets = working.flatMap((session) => session.sets);
   const best = (values: (number | null)[]) => {
     const numbers = values.filter((value): value is number => value !== null);
     return numbers.length > 0 ? Math.max(...numbers) : null;
@@ -85,13 +95,17 @@ export function ExerciseDetail({ state, exercise }: { state: AppState; exercise:
   const oneRepMax = best(workingSets.map(estimatedOneRepMax));
   const mostReps = best(workingSets.map((set) => set.reps));
 
-  // Heaviest working set per session, oldest first.
-  const topSets = sessions
-    .map((session) => ({
-      time: session.workout.startedAt,
-      kg: best(session.entry.sets.filter((set) => set.isDone && !set.isWarmup).map((set) => set.weight)),
-    }))
-    .filter((point): point is { time: number; kg: number } => point.kg !== null)
+  // Heaviest working set per session — at the same weight, the one with more reps — oldest first.
+  const topSets = working
+    .flatMap(({ time, sets }) => {
+      const top = sets
+        .filter((set): set is typeof set & { weight: number } => set.weight !== null)
+        .reduce<{ weight: number; reps: number | null } | null>(
+          (found, set) => (!found || set.weight > found.weight || (set.weight === found.weight && (set.reps ?? 0) > (found.reps ?? 0)) ? set : found),
+          null,
+        );
+      return top ? [{ time, kg: top.weight, reps: top.reps }] : [];
+    })
     .reverse();
   const video = webLink(exercise.videoURL);
   const rank = useMemo(
@@ -161,10 +175,10 @@ export function ExerciseDetail({ state, exercise }: { state: AppState; exercise:
           </Link>
         </Section>
       )}
-      {!rank && canBeRanked && workingSets.length > 0 && (
+      {!rank && canBeRanked && workingSets.length > 0 && state.settings.rankStandards !== '' && (
         <Section title="Rank">
           <LinkRow to="/ranks">
-            {rankSetup(state) ? 'Not ranked yet — it takes a set with weight' : 'Set up ranks to see where this lift stands'}
+            {rankSetup(state) ? 'Not ranked yet — it takes a set with weight' : 'Log your body weight to see where this lift stands'}
           </LinkRow>
         </Section>
       )}
@@ -177,6 +191,11 @@ export function ExerciseDetail({ state, exercise }: { state: AppState; exercise:
           <ValueRow label="Sessions" value={sessions.length} />
         </Section>
       )}
+      {workingSets.length > 0 && hasDumbbells && sessions.some((session) => (session.entry.bothDumbbells === true) !== showBoth) && (
+        <p className="section-footer">
+          Some sessions count {showBoth ? 'one dumbbell' : 'both dumbbells'}; records and the chart show them as {showBoth ? 'both dumbbells together' : 'one dumbbell'}, like your latest session.
+        </p>
+      )}
 
       {topSets.length > 1 && (
         <Section title={`Top set · ${unit}`}>
@@ -184,7 +203,11 @@ export function ExerciseDetail({ state, exercise }: { state: AppState; exercise:
             <LineChart
               label={`Heaviest set of ${exercise.name} per session`}
               unit={unit}
-              points={topSets.map((point) => ({ time: point.time, value: fromKg(unit, point.kg) }))}
+              points={topSets.map((point) => ({
+                time: point.time,
+                value: fromKg(unit, point.kg),
+                note: point.reps === null ? undefined : `× ${point.reps}`,
+              }))}
             />
           </div>
         </Section>
@@ -196,7 +219,11 @@ export function ExerciseDetail({ state, exercise }: { state: AppState; exercise:
         </Section>
       )}
       {sessions.map(({ workout, entry }) => (
-        <Section key={entry.id} title={`${fmtDate(workout.startedAt)} · ${workout.name}`}>
+        <Section
+          key={entry.id}
+          title={`${fmtDate(workout.startedAt)} · ${workout.name}`}
+          aside={hasDumbbells && <DumbbellToggle workoutId={workout.id} entry={entry} />}
+        >
           {entry.sets.filter((set) => set.isDone).map((set) => (
             <div key={set.id} className="row numeric">
               <span>{setText(set, unit)}</span>

@@ -10,13 +10,13 @@ import type { AppState, EffortScale, Exercise, SetEntry, WeightUnit, Workout, Wo
 import { effortChoices, effortText, effortTitle, effortValue, fmtNumber, fromKg, rpeFrom, toKg } from '../lib/units';
 import {
   addExercise, addSet, deleteSet, deleteWorkout, finishWorkout, hasCompletedSets, hasOpenSets,
-  moveEntry, previousSets, removeEntry, rowLabels, updateSet,
+  moveEntry, previousSets, removeEntry, rowLabels, takesDumbbells, updateSet,
 } from '../lib/workouts';
 import { webLink } from '../lib/videos';
 import { DecimalField, IntegerField } from '../ui/controls';
 import { Page, Section } from '../ui/layout';
 import { ConfirmDialog, Menu } from '../ui/overlays';
-import { ElapsedTime, ExerciseLabel } from '../ui/parts';
+import { DumbbellToggle, ElapsedTime, ExerciseLabel } from '../ui/parts';
 import { RankBadge, RankUpToast } from '../ui/RankBadge';
 import { ExercisePicker } from './ExercisePicker';
 
@@ -158,7 +158,7 @@ export function ActiveWorkout({ state, workout }: { state: AppState; workout: Wo
           workoutId={workout.id}
           entry={entry}
           exercise={entry.exerciseId ? exercises.get(entry.exerciseId) : undefined}
-          previous={entry.exerciseId ? previousSets(state.workouts, entry.exerciseId) : []}
+          previous={entry.exerciseId ? previousSets(state.workouts, entry.exerciseId, entry.bothDumbbells === true) : []}
           rank={entry.exerciseId ? ranks.get(entry.exerciseId) : undefined}
           isFirst={index === 0}
           isLast={index === workout.entries.length - 1}
@@ -228,7 +228,7 @@ interface EntryProps {
   workoutId: string;
   entry: WorkoutEntry;
   exercise: Exercise | undefined;
-  /** The sets logged the last time this exercise was done. */
+  /** The sets logged the last time this exercise was done, with dumbbells counted the way this entry counts them. */
   previous: SetEntry[];
   /** Where the lift stands, counting this workout's ticked sets. */
   rank: LiftRank | undefined;
@@ -247,6 +247,7 @@ function EntrySection({ workoutId, entry, exercise, previous, rank, isFirst, isL
         <div className="entry-header">
           <div className="grow">
             <h2>{entry.exerciseName}</h2>
+            {takesDumbbells(exercise) && <DumbbellToggle workoutId={workoutId} entry={entry} />}
             {exercise?.notes && <p className="caption secondary prewrap">{exercise.notes}</p>}
           </div>
           {rank && <RankBadge rank={rank} size={30} />}

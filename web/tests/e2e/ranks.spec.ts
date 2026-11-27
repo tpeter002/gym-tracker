@@ -39,6 +39,34 @@ async function logSet(page: Page, exercise: string, weight: string, reps: string
   await section.getByRole('button', { name: 'Mark set as done' }).first().click();
 }
 
+test('a lift that could be ranked says what is missing, once ranks are on', async ({ page }) => {
+  // History without a single weigh-in: restore the demo data, then delete every body-weight entry.
+  await seed(page);
+  await page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('gym-tracker');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = database.transaction('bodyWeights', 'readwrite');
+      tx.objectStore('bodyWeights').clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    database.close();
+  });
+  await page.goto('/#/ranks');
+  await page.reload();
+  await choose(page, 'Men');
+  await expect(page.getByText(/Log your body weight to see yours\./)).toBeVisible();
+
+  await page.goto('/#/exercises');
+  await page.getByRole('searchbox').fill('bench press barbell');
+  await page.getByRole('link', { name: /^Bench Press \(Barbell\)/ }).click();
+  await expect(page.getByRole('region', { name: 'Rank' }).getByRole('link')).toHaveText(/Log your body weight to see where this lift stands/);
+});
+
 test('nothing is ranked until standards are chosen and a body weight is logged', async ({ page }) => {
   await page.goto('/#/');
   await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Ranks' }).click();
@@ -111,6 +139,10 @@ test("the same lifts stand higher against the women's standards, and Off hides r
   await page.getByRole('searchbox').fill('bench press');
   await expect(page.getByRole('link', { name: /^Bench Press \(Barbell\)/ })).toBeVisible();
   await expect(page.getByRole('img', { name: /Gold|Diamond/ })).toHaveCount(0);
+  // Nor does the exercise's own page bring them up.
+  await page.getByRole('link', { name: /^Bench Press \(Barbell\)/ }).click();
+  await expect(page.getByText('Estimated 1RM')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Rank' })).toHaveCount(0);
 });
 
 test('the exercise list marks ranked lifts, and only those', async ({ page }) => {

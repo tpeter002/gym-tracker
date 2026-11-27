@@ -228,6 +228,20 @@ a.row, button.row { cursor: pointer; }
 .prewrap { white-space: pre-wrap; }
 .clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; overflow: hidden; }
 
+/* A small two-state button: what it says is how things stand, a tap flips it. */
+.pill-toggle {
+  position: relative;
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  min-height: 24px; padding: 2px 9px; border-radius: 999px;
+  background: var(--fill); color: var(--accent);
+  font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none; white-space: nowrap;
+}
+.pill-toggle[aria-pressed='true'] { background: var(--accent-soft); }
+.entry-header .pill-toggle { margin-top: 4px; }
+.section-header .pill-toggle { margin: -5px -6px -5px 0; }
+/* The tap target reaches past the pill, which is too small for a thumb. */
+.pill-toggle::after { content: ''; position: absolute; inset: -10px -6px; }
+
 .badge {
   padding: 2px 7px; border-radius: 999px;
   background: var(--accent-soft); color: var(--accent);

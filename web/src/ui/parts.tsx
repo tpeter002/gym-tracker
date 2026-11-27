@@ -1,11 +1,12 @@
-import { Calendar, Clock, Play, RotateCw, SquarePlay } from 'lucide-react';
+import { ArrowLeftRight, Calendar, Clock, Play, RotateCw, SquarePlay } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { requestStart } from '../lib/actions';
 import { exerciseSubtitle } from '../lib/exercises';
-import type { Exercise, SavedVideo, Workout } from '../lib/types';
+import { update } from '../lib/store';
+import type { Exercise, SavedVideo, Workout, WorkoutEntry } from '../lib/types';
 import { fmtClock, fmtDayMonth, fmtDuration } from '../lib/units';
 import { youtubeThumbnail } from '../lib/videos';
-import { durationSeconds } from '../lib/workouts';
+import { durationSeconds, setBothDumbbells } from '../lib/workouts';
 import { Link } from './layout';
 
 /** Live "12:34" clock counting up from the workout's start. */
@@ -31,6 +32,27 @@ export function ExerciseLabel({ exercise }: { exercise: Exercise }) {
         {exercise.videoURL && <SquarePlay size={14} aria-label="has a video" />}
       </span>
     </span>
+  );
+}
+
+/**
+ * Says whether a dumbbell exercise's weights are for one dumbbell or the pair
+ * together, and flips it. The numbers stay as typed; what changes is how they
+ * are read — in "previous", in records and in ranks.
+ */
+export function DumbbellToggle({ workoutId, entry }: { workoutId: string; entry: WorkoutEntry }) {
+  const both = entry.bothDumbbells === true;
+  return (
+    <button
+      className="pill-toggle"
+      aria-pressed={both}
+      aria-label="Both dumbbells together"
+      title={both ? 'The weights are the two dumbbells together. Tap if they are one dumbbell.' : 'The weights are one dumbbell. Tap if they are the two together.'}
+      onClick={() => update((draft) => setBothDumbbells(draft, workoutId, entry.id, !both))}
+    >
+      <ArrowLeftRight size={13} aria-hidden />
+      {both ? 'Both dumbbells' : 'Per dumbbell'}
+    </button>
   );
 }
 

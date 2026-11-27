@@ -4,6 +4,8 @@ import { fmtDate, fmtNumber, fmtShortDate } from '../lib/units';
 export interface ChartPoint {
   time: number;
   value: number;
+  /** Said after the value wherever it is read off: "× 8" for a top set's reps. */
+  note?: string;
 }
 
 const HEIGHT = 180;
@@ -76,6 +78,7 @@ export function LineChart({ points, label, unit }: Props) {
   const shown = active !== null && active < points.length ? points[active] : null;
   const first = points[0];
   const last = points[points.length - 1];
+  const reading = (point: ChartPoint) => `${fmtNumber(point.value, 1)} ${unit}${point.note ? ` ${point.note}` : ''}`;
 
   return (
     <div
@@ -84,7 +87,7 @@ export function LineChart({ points, label, unit }: Props) {
       tabIndex={0}
       role="group"
       aria-roledescription="chart"
-      aria-label={`${label}: ${fmtNumber(first.value, 1)} ${unit} on ${fmtDate(first.time)} to ${fmtNumber(last.value, 1)} ${unit} on ${fmtDate(last.time)}. Arrow keys step through the points.`}
+      aria-label={`${label}: ${reading(first)} on ${fmtDate(first.time)} to ${reading(last)} on ${fmtDate(last.time)}. Arrow keys step through the points.`}
       onPointerMove={(event) => setActive(nearest(event.clientX))}
       onPointerDown={(event) => setActive(nearest(event.clientX))}
       onPointerLeave={(event) => event.pointerType === 'mouse' && setActive(null)}
@@ -118,7 +121,7 @@ export function LineChart({ points, label, unit }: Props) {
             className="chart-tip"
             style={x(shown.time) > width / 2 ? { right: width - x(shown.time) + 10 } : { left: x(shown.time) + 10 }}
           >
-            <strong>{fmtNumber(shown.value, 1)} {unit}</strong>
+            <strong>{reading(shown)}</strong>
             <span className="secondary">{fmtDate(shown.time)}</span>
           </div>
         )}

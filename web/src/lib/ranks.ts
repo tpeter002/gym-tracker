@@ -4,6 +4,7 @@ import { STANDARD_LINES } from './standards';
 import { REGIONS } from './suggestions';
 import type { AppState, Equipment, Exercise, MuscleGroup, RankStandards, WeightUnit, Workout } from './types';
 import { fmtNumber, fromKg } from './units';
+import { weightEach } from './workouts';
 
 // A rank for every lift: how the best set you have logged compares with what
 // strong lifters of your body weight manage (standards.ts). Seven tiers of
@@ -164,7 +165,8 @@ function bestSets(workouts: readonly Workout[], bodyKg: number, includeActive: b
       if (!entry.exerciseId) continue;
       for (const set of entry.sets) {
         if (!set.isDone || set.isWarmup || !set.reps || set.reps <= 0) continue;
-        const weight = Math.max(0, set.weight ?? 0);
+        // The standards count one dumbbell, whichever way the set was typed in.
+        const weight = Math.max(0, weightEach(entry, set) ?? 0);
         const best = found.get(entry.exerciseId) ?? { oneRepMaxKg: 0, bodyLoad: 0 };
         const oneRepMax = set.reps === 1 ? weight : weight * repsToLoad(Math.min(set.reps, MAX_REPS_WEIGHTED));
         best.oneRepMaxKg = Math.max(best.oneRepMaxKg, oneRepMax);

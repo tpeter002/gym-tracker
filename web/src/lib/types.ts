@@ -94,6 +94,12 @@ export interface WorkoutEntry {
   exerciseName: string;
   notes: string;
   sets: SetEntry[];
+  /**
+   * Dumbbell exercises only: the weights were typed in for the two dumbbells
+   * together. Absent means one dumbbell, which is how Strong logs them and how
+   * the ranks' standards count.
+   */
+  bothDumbbells?: boolean;
 }
 
 export interface Workout {

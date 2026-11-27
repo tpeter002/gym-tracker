@@ -7,11 +7,11 @@ import { update, useSignal } from '../lib/store';
 import { EXPORT_TARGET_TITLES, EXPORT_TARGETS } from '../lib/types';
 import type { AppState, SetEntry, WeightUnit, Workout } from '../lib/types';
 import { effortLabel, fmtCount, fmtDateTime, fmtDuration, fmtMonthYear, fmtNumber, fromKg, weightText } from '../lib/units';
-import { deleteWorkout, doneSets, durationSeconds, finishedWorkouts, rowLabels, volumeKg } from '../lib/workouts';
+import { deleteWorkout, doneSets, durationSeconds, finishedWorkouts, rowLabels, takesDumbbells, volumeKg } from '../lib/workouts';
 import { EmptyState, Link, Page, Section, ValueRow } from '../ui/layout';
 import { Spinner } from '../ui/controls';
 import { ConfirmDialog, Menu } from '../ui/overlays';
-import { WorkoutRow } from '../ui/parts';
+import { DumbbellToggle, WorkoutRow } from '../ui/parts';
 
 /** Every finished workout, newest first, grouped by month. */
 export function History({ state }: { state: AppState }) {
@@ -101,7 +101,7 @@ export function WorkoutDetail({ state, workout }: { state: AppState; workout: Wo
   const [confirmDelete, setConfirmDelete] = useState(false);
   const seconds = durationSeconds(workout);
   const volume = volumeKg(workout);
-  const known = useMemo(() => new Set(state.exercises.map((exercise) => exercise.id)), [state.exercises]);
+  const known = useMemo(() => new Map(state.exercises.map((exercise) => [exercise.id, exercise])), [state.exercises]);
 
   return (
     <Page
@@ -127,11 +127,12 @@ export function WorkoutDetail({ state, workout }: { state: AppState; workout: Wo
 
       {workout.entries.map((entry) => {
         const labels = rowLabels(entry.sets);
-        const hasPage = entry.exerciseId !== null && known.has(entry.exerciseId);
+        const exercise = entry.exerciseId !== null ? known.get(entry.exerciseId) : undefined;
         return (
           <Section
             key={entry.id}
-            title={hasPage ? <Link to={`/exercises/${entry.exerciseId}`}>{entry.exerciseName}</Link> : entry.exerciseName}
+            title={exercise ? <Link to={`/exercises/${entry.exerciseId}`}>{entry.exerciseName}</Link> : entry.exerciseName}
+            aside={takesDumbbells(exercise) && <DumbbellToggle workoutId={workout.id} entry={entry} />}
             footer={entry.notes}
           >
             {entry.sets.map((set, index) => (

@@ -105,6 +105,24 @@ Two other ways in:
 - Opening `<app address>/?url=<link>` saves the link — handy as a bookmark in the browser the app runs in.
 - On Android, an installed copy is listed in the share sheet (`share_target` in the manifest). Untested.
 
+## Dumbbell weights
+
+Dumbbell weights get typed in two ways — one dumbbell, or the pair together — sometimes by the same
+person. Every logged dumbbell exercise carries a small button that says which: **Per dumbbell** or
+**Both dumbbells**. It is on the exercise in a running workout, on a finished workout's page, and on
+each session of the exercise's own page, so old sessions can be put right too.
+
+The numbers themselves are never rewritten; the button changes how they are read:
+
+- A new workout counts an exercise the way it was counted last time, and the "Previous" column (and
+  what a tick takes over from it) is said the current workout's way.
+- On the exercise's page, records and the top-set chart read every session the way the latest one
+  was counted. The chart names the reps with the weight: "31.5 kg × 10".
+- Volume and ranks count one dumbbell, whichever way a session was typed in.
+- Workouts sent to Strava and Garmin Connect carry the numbers as typed.
+
+One dumbbell is the default, which is how Strong exports them.
+
 ## Ranks
 
 The **Ranks** tab gives every lift a rank, from Iron through Bronze, Silver, Gold, Platinum and Diamond

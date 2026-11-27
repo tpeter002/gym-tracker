@@ -1,5 +1,5 @@
 import { uid } from './ids';
-import type { AppState, SetEntry, Workout, WorkoutEntry } from './types';
+import type { AppState, Exercise, SetEntry, Workout, WorkoutEntry } from './types';
 
 // Everything that changes a workout's shape lives here. The functions change
 // the state they are given; the store runs them on a draft (see store.ts).
@@ -50,6 +50,8 @@ export function startRepeat(state: AppState, sourceId: string, now = Date.now())
     entries.push({
       id: uid(), exerciseId: old.exerciseId, exerciseName: name, notes: '',
       sets: old.sets.map((set) => blankSet(set.isWarmup)),
+      // Counted the same way as in the workout being repeated.
+      ...(old.bothDumbbells ? { bothDumbbells: true } : {}),
     });
   }
   const workout: Workout = { id: uid(), name: source.name, startedAt: now, endedAt: null, notes: '', entries };
@@ -62,12 +64,40 @@ export function addExercise(state: AppState, workoutId: string, exerciseId: stri
   const exercise = state.exercises.find((candidate) => candidate.id === exerciseId);
   if (!workout || !exercise) return;
   // Mirror last time's set count so the "previous" column lines up.
-  const previous = previousSets(state.workouts, exerciseId);
+  const last = previousEntry(state.workouts, exerciseId);
+  const previous = last ? last.sets.filter((set) => set.isDone) : [];
   const sets = previous.length > 0
     ? previous.map((set) => blankSet(set.isWarmup))
     : [blankSet(), blankSet(), blankSet()];
-  workout.entries.push({ id: uid(), exerciseId, exerciseName: exercise.name, notes: '', sets });
+  const entry: WorkoutEntry = { id: uid(), exerciseId, exerciseName: exercise.name, notes: '', sets };
+  // Dumbbells are counted the way they were last time, so nobody has to say it twice.
+  if (last?.bothDumbbells && takesDumbbells(exercise)) entry.bothDumbbells = true;
+  workout.entries.push(entry);
 }
+
+// Dumbbell weights get logged two ways — one dumbbell, or the pair together —
+// sometimes by the same person. Each entry remembers which it was, so the
+// numbers can be compared whichever way they were typed.
+
+/** Whether an exercise's entries can say how its dumbbells were counted. */
+export const takesDumbbells = (exercise: Pick<Exercise, 'equipment'> | undefined) => exercise?.equipment === 'dumbbell';
+
+/** Says which way an entry's weights were typed in. Works on finished workouts too, to put old ones right. */
+export function setBothDumbbells(state: AppState, workoutId: string, entryId: string, both: boolean): void {
+  const entry = findEntry(state, workoutId, entryId);
+  if (!entry) return;
+  if (both) entry.bothDumbbells = true;
+  else delete entry.bothDumbbells;
+}
+
+/** A weight typed in one way of counting dumbbells, said in the other. */
+export function dumbbellWeight(kg: number | null, fromBoth: boolean, toBoth: boolean): number | null {
+  if (kg === null || fromBoth === toBoth) return kg;
+  return toBoth ? kg * 2 : kg / 2;
+}
+
+/** A set's weight as one dumbbell, whichever way its entry was logged. For anything but dumbbells: as it is. */
+export const weightEach = (entry: WorkoutEntry, set: SetEntry) => dumbbellWeight(set.weight, entry.bothDumbbells === true, false);
 
 export function addSet(state: AppState, workoutId: string, entryId: string): void {
   findEntry(state, workoutId, entryId)?.sets.push(blankSet());
@@ -98,8 +128,8 @@ export function moveEntry(state: AppState, workoutId: string, entryId: string, o
   [entries[index], entries[target]] = [entries[target], entries[index]];
 }
 
-/** Completed sets from the most recent finished workout containing the exercise. */
-export function previousSets(workouts: readonly Workout[], exerciseId: string): SetEntry[] {
+/** The exercise as it was logged in the most recent finished workout containing it (with a completed set). */
+export function previousEntry(workouts: readonly Workout[], exerciseId: string): WorkoutEntry | null {
   let latest: { startedAt: number; entry: WorkoutEntry } | null = null;
   for (const workout of workouts) {
     if (workout.endedAt === null) continue;
@@ -108,7 +138,21 @@ export function previousSets(workouts: readonly Workout[], exerciseId: string): 
       if (!latest || workout.startedAt > latest.startedAt) latest = { startedAt: workout.startedAt, entry };
     }
   }
-  return latest ? latest.entry.sets.filter((set) => set.isDone) : [];
+  return latest ? latest.entry : null;
+}
+
+/**
+ * Completed sets from the most recent finished workout containing the
+ * exercise. With `both` given, their weights are said the way the asking
+ * entry counts its dumbbells, so "previous" always lines up with what is typed.
+ */
+export function previousSets(workouts: readonly Workout[], exerciseId: string, both?: boolean): SetEntry[] {
+  const last = previousEntry(workouts, exerciseId);
+  if (!last) return [];
+  const done = last.sets.filter((set) => set.isDone);
+  const lastBoth = last.bothDumbbells === true;
+  if (both === undefined || both === lastBoth) return done;
+  return done.map((set) => ({ ...set, weight: dumbbellWeight(set.weight, lastBoth, both) }));
 }
 
 export const hasCompletedSets = (workout: Workout) =>
@@ -141,9 +185,14 @@ export function deleteWorkout(state: AppState, workoutId: string): void {
 export const doneSets = (workout: Workout) =>
   workout.entries.flatMap((entry) => entry.sets).filter((set) => set.isDone);
 
-/** Total kilograms moved, warm-ups excluded. */
+/**
+ * Weight × reps over the working sets. Dumbbells count as one dumbbell however
+ * they were typed in, so the same session logged either way has the same volume.
+ */
 export const volumeKg = (workout: Workout) =>
-  doneSets(workout).filter((set) => !set.isWarmup).reduce((sum, set) => sum + (set.weight ?? 0) * (set.reps ?? 0), 0);
+  workout.entries.reduce((total, entry) => total + entry.sets
+    .filter((set) => set.isDone && !set.isWarmup)
+    .reduce((sum, set) => sum + (weightEach(entry, set) ?? 0) * (set.reps ?? 0), 0), 0);
 
 export const durationSeconds = (workout: Workout, now = Date.now()) =>
   ((workout.endedAt ?? now) - workout.startedAt) / 1000;

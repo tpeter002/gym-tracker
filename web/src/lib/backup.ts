@@ -86,13 +86,17 @@ const readSet = (raw: Raw): SetEntry => ({
   isDone: raw.isDone === true,
 });
 
-const readEntry = (raw: Raw): WorkoutEntry => ({
-  id: id(raw, 'workout exercise'),
-  exerciseId: strOrNull(raw.exerciseId),
-  exerciseName: str(raw.exerciseName),
-  notes: str(raw.notes),
-  sets: list(raw.sets, 'sets', readSet),
-});
+const readEntry = (raw: Raw): WorkoutEntry => {
+  const entry: WorkoutEntry = {
+    id: id(raw, 'workout exercise'),
+    exerciseId: strOrNull(raw.exerciseId),
+    exerciseName: str(raw.exerciseName),
+    notes: str(raw.notes),
+    sets: list(raw.sets, 'sets', readSet),
+  };
+  if (raw.bothDumbbells === true) entry.bothDumbbells = true;
+  return entry;
+};
 
 /** Where the workout stands with Strava and Garmin; absent when it was never queued or sent. */
 function readExports(raw: unknown): Workout['exports'] {

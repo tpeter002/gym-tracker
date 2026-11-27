@@ -114,6 +114,18 @@ Two other ways in:
 - Opening `<app address>/?url=<link>` saves the link — handy as a bookmark in the browser the app runs in.
 - On Android, an installed copy is listed in the share sheet (`share_target` in the manifest). Untested.
 
+## Rest timer
+
+Ticking a set off starts a countdown beside **Finish**. A tap on it adds 30 seconds or skips it; when
+it runs out it says "Rest over" for a few seconds and goes away. **Settings → Rest between sets**
+sets its length (two minutes unless changed), switches it off, and switches its sound.
+
+The sound is two short beeps, scheduled when the rest starts — browsers only let a page make sound in
+answer to a tap. It can only be heard while the app is on screen: a phone that locks, or another app
+in front, stops the page. It was tested with a stand-in for the browser's sound, not by ear and not
+on an iPhone; a phone's silent switch should silence it like any other page's sound. Where the
+browser can vibrate the phone (not on an iPhone) it does that too.
+
 ## Editing a finished workout
 
 A finished workout's page has **Edit Workout** in its menu. It opens the workout in the same screen

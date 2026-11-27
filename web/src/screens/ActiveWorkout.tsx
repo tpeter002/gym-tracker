@@ -3,8 +3,9 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { queueExports, sendWaiting } from '../lib/exports';
 import { rankUps } from '../lib/ranks';
 import type { LiftRank, RankUp } from '../lib/ranks';
+import { skipRest, startRest } from '../lib/rest';
 import { goBack, navigate } from '../lib/router';
-import { update } from '../lib/store';
+import { getState, update } from '../lib/store';
 import { RANK_SETTLE_MS } from '../lib/timing';
 import { toTryFor } from '../lib/suggestions';
 import type { AppState, EffortScale, Exercise, SetEntry, WeightUnit, Workout, WorkoutEntry } from '../lib/types';
@@ -23,6 +24,7 @@ import { Page, Section } from '../ui/layout';
 import { ConfirmDialog, Menu } from '../ui/overlays';
 import { DumbbellToggle, ElapsedTime, ExerciseLabel } from '../ui/parts';
 import { RankBadge, RankUpToast } from '../ui/RankBadge';
+import { RestChip } from '../ui/RestChip';
 import { useLiftRanks } from '../ui/useLiftRanks';
 import { ExercisePicker } from './ExercisePicker';
 
@@ -105,6 +107,7 @@ export function ActiveWorkout({ state, workout, editing = false }: { state: AppS
       finishWorkout(draft, workout.id);
       queueExports(draft, workout.id); // for the services set to get workouts automatically
     });
+    skipRest();
     void sendWaiting();
     navigate('/history', { replace: true });
   };
@@ -135,7 +138,12 @@ export function ActiveWorkout({ state, workout, editing = false }: { state: AppS
           <ChevronDown size={24} aria-hidden />
         </button>
       )}
-      trailing={<button className="bar-button strong" onClick={requestFinish}>{editing ? 'Done' : 'Finish'}</button>}
+      trailing={
+        <>
+          {!editing && <RestChip settings={state.settings} />}
+          <button className="bar-button strong" onClick={requestFinish}>{editing ? 'Done' : 'Finish'}</button>
+        </>
+      }
     >
       <Section footer={editing && sentTo.length > 0 && `Already sent to ${sentTo.join(' and ')}: what you change here stays in this app.`}>
         <div className="row">
@@ -226,6 +234,7 @@ export function ActiveWorkout({ state, workout, editing = false }: { state: AppS
           isLast={index === workout.entries.length - 1}
           unit={state.settings.unit}
           effort={state.settings.effort}
+          rests={!editing}
         />
       ))}
 
@@ -268,6 +277,7 @@ export function ActiveWorkout({ state, workout, editing = false }: { state: AppS
             destructive: true,
             run: () => {
               update((draft) => deleteWorkout(draft, workout.id));
+              skipRest();
               navigate('/', { replace: true });
             },
           }]}
@@ -301,10 +311,12 @@ interface EntryProps {
   isLast: boolean;
   unit: WeightUnit;
   effort: EffortScale;
+  /** Whether ticking a set starts the rest timer: while logging, not while correcting an old workout. */
+  rests: boolean;
 }
 
 /** One exercise block inside the active workout. */
-function EntrySection({ workoutId, entry, exercise, previous, rank, isFirst, isLast, unit, effort }: EntryProps) {
+function EntrySection({ workoutId, entry, exercise, previous, rank, isFirst, isLast, unit, effort, rests }: EntryProps) {
   const labels = rowLabels(entry.sets);
   const video = webLink(exercise?.videoURL ?? null);
   return (
@@ -352,6 +364,7 @@ function EntrySection({ workoutId, entry, exercise, previous, rank, isFirst, isL
           previous={previous[index]}
           unit={unit}
           effort={effort}
+          rests={rests}
         />
       ))}
       <button className="row add-set" onClick={() => update((draft) => addSet(draft, workoutId, entry.id))}>
@@ -371,9 +384,10 @@ interface SetRowProps {
   previous: SetEntry | undefined;
   unit: WeightUnit;
   effort: EffortScale;
+  rests: boolean;
 }
 
-const SetRow = memo(function SetRow({ workoutId, entryId, set, label, previous, unit, effort }: SetRowProps) {
+const SetRow = memo(function SetRow({ workoutId, entryId, set, label, previous, unit, effort, rests }: SetRowProps) {
   const repsField = useRef<HTMLInputElement>(null);
   const change = (patch: Partial<SetEntry>) => update((draft) => updateSet(draft, workoutId, entryId, set.id, patch));
 
@@ -387,6 +401,7 @@ const SetRow = memo(function SetRow({ workoutId, entryId, set, label, previous, 
     const reps = set.reps ?? previous?.reps ?? null;
     if (reps === null) return repsField.current?.focus(); // nothing to log yet
     change({ weight, reps, isDone: true });
+    if (rests) startRest(getState().settings);
   };
 
   const shownEffort = set.rpe === null ? null : effortValue(effort, set.rpe);

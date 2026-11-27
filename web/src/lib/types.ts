@@ -182,6 +182,10 @@ export interface Settings {
   apiKeys: Record<ModelProvider, string>;
   /** Whether a workout is sent to each connected service as soon as it is finished. */
   autoExport: Record<ExportTarget, boolean>;
+  /** How long the rest between sets is, in seconds; 0 switches the timer off. */
+  restSeconds: number;
+  /** Whether the end of a rest is marked with a sound. */
+  restSound: boolean;
   /** Which strength standards lifts are ranked against. Empty until chosen; nothing is ranked before that. */
   rankStandards: RankStandards | '';
   /**
@@ -213,6 +217,8 @@ export const defaultSettings = (): Settings => ({
   models: perProvider(() => ''),
   apiKeys: perProvider(() => ''),
   autoExport: { strava: false, garmin: false },
+  restSeconds: 120,
+  restSound: true,
   rankStandards: '',
   shareCode: '',
 });
@@ -241,6 +247,10 @@ export function normalizeSettings(raw: unknown): Settings {
     models: table(stored.models),
     apiKeys: table(stored.apiKeys),
     autoExport: { strava: flags(stored.autoExport).strava === true, garmin: flags(stored.autoExport).garmin === true },
+    // Settings from before the timer existed get it switched on, like a new browser.
+    restSeconds: typeof stored.restSeconds === 'number' && stored.restSeconds >= 0 && stored.restSeconds <= 3600
+      ? Math.round(stored.restSeconds) : defaultSettings().restSeconds,
+    restSound: stored.restSound !== false,
     rankStandards: stored.rankStandards === 'men' || stored.rankStandards === 'women' ? stored.rankStandards : '',
     shareCode: SHARE_CODE.test(text(stored.shareCode)) ? text(stored.shareCode) : '',
   };

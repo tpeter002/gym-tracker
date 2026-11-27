@@ -5,10 +5,11 @@ import { analyzerOnline, isBlockedAsMixedContent, isReachable } from '../../lib/
 import { BackupError, parseBackup, restoreBackup } from '../../lib/backup';
 import type { Backup } from '../../lib/backup';
 import { STANDARDS_OPTIONS } from '../../lib/ranks';
+import { fmtRest, REST_CHOICES } from '../../lib/rest';
 import { getState, replaceState } from '../../lib/store';
 import type { AppState } from '../../lib/types';
 import { fmtCount, fmtDateTime } from '../../lib/units';
-import { Segmented, Spinner } from '../../ui/controls';
+import { Segmented, Spinner, Switch } from '../../ui/controls';
 import { downloadBackup } from '../../ui/downloadBackup';
 import { LinkRow, Page, Section } from '../../ui/layout';
 import { ConfirmDialog } from '../../ui/overlays';
@@ -65,6 +66,28 @@ export function Settings({ state }: { state: AppState }) {
           Effort scale
           <Segmented label="Effort scale" value={settings.effort} options={SCALES} onChange={(effort) => changeSettings({ effort })} />
         </div>
+      </Section>
+
+      <Section
+        title="Rest between sets"
+        footer="Ticking a set off starts the countdown at the top of the workout. Tap it there for more time or to skip it."
+      >
+        <label className="row">
+          Rest timer
+          <select
+            className="field"
+            value={String(settings.restSeconds)}
+            onChange={(event) => changeSettings({ restSeconds: Number(event.target.value) })}
+          >
+            {/* A length saved by hand or by another version stays selectable. */}
+            {[...new Set([...REST_CHOICES, settings.restSeconds])].sort((a, b) => a - b).map((seconds) => (
+              <option key={seconds} value={String(seconds)}>{seconds === 0 ? 'Off' : fmtRest(seconds)}</option>
+            ))}
+          </select>
+        </label>
+        {settings.restSeconds > 0 && (
+          <Switch label="Sound when the rest is over" checked={settings.restSound} onChange={(restSound) => changeSettings({ restSound })} />
+        )}
       </Section>
 
       <Section title="Ranks" footer="Ranks compare your best set of each lift with strength standards for your body weight. Off hides them everywhere.">

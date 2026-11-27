@@ -137,8 +137,11 @@ describe('a backup file made by the first version of the format', () => {
     expect(Object.values(state.settings.apiKeys)).toEqual(['', '', '', '']);
   });
 
-  it('is what the app would write for the same data today', () => {
+  it('loses nothing on the way through today\'s app', () => {
+    // Written out again, everything the file held is still there. Newer settings may have joined it; nothing may have left.
     const { state, exportedAt } = parseBackup(text);
-    expect(JSON.parse(exportBackup(state, exportedAt!))).toEqual(JSON.parse(text));
+    const rewritten = exportBackup(state, exportedAt!);
+    expect(JSON.parse(rewritten)).toMatchObject(JSON.parse(text));
+    expect(parseBackup(rewritten).state).toEqual(state);
   });
 });

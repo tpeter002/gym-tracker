@@ -233,6 +233,15 @@ a.row:active, button.row:not(:disabled):active, a.row-main:active { background: 
 .prewrap { white-space: pre-wrap; }
 .clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; overflow: hidden; }
 
+/* The rest between sets, counting down beside Finish. */
+.rest-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  min-height: 32px; padding: 0 10px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent);
+  font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.rest-chip.over { background: var(--green-soft); color: var(--green); }
+
 /* A small two-state button: what it says is how things stand, a tap flips it. */
 .pill-toggle {
   position: relative;

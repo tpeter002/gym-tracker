@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { guessEquipment, guessMuscle, saveExercise, seedLibrary } from '../../src/lib/exercises';
+import { guessEquipment, guessMuscle, libraryId, saveExercise, seedLibrary } from '../../src/lib/exercises';
 import { LIBRARY, LIBRARY_VERSION } from '../../src/lib/library';
 import type { LibraryItem } from '../../src/lib/library';
 import { EQUIPMENT, emptyState, MUSCLE_GROUPS } from '../../src/lib/types';
@@ -60,6 +60,27 @@ describe('the built-in library', () => {
     state.libraryVersion = 2;
     seedLibrary(state, [item('Bench Press (Barbell)'), item('Zercher Squat (Barbell)', 2)], 2);
     expect(names(state)).toEqual(['Bench Press (Barbell)', 'Zercher Squat (Barbell)']);
+  });
+
+  it('gives a built-in the same id wherever it is added, so two devices of one account add the same records', () => {
+    const phone = emptyState();
+    const laptop = emptyState();
+    seedLibrary(phone);
+    seedLibrary(laptop);
+    expect(phone.exercises.map((exercise) => exercise.id)).toEqual(laptop.exercises.map((exercise) => exercise.id));
+    expect(new Set(phone.exercises.map((exercise) => exercise.id)).size).toBe(LIBRARY.length);
+    expect(libraryId('Bench Press (Barbell)')).toBe('lib_bench_press_barbell');
+    // Ids the cloud accepts as they are (see cloud/records.ts).
+    for (const exercise of phone.exercises) expect(exercise.id, exercise.name).toMatch(/^lib_[a-z0-9_]{1,60}$/);
+  });
+
+  it('does not add a built-in a second time under the id of one that was renamed', () => {
+    const state = emptyState();
+    seedLibrary(state, [item('Bench Press (Barbell)'), item('Squat (Barbell)')], 1);
+    state.exercises[0].name = 'Flat Bench'; // renamed; its id stays lib_bench_press_barbell
+    state.libraryVersion = 0; // as if the list were offered afresh
+    seedLibrary(state, [item('Bench Press (Barbell)'), item('Squat (Barbell)')], 1);
+    expect(names(state)).toEqual(['Flat Bench', 'Squat (Barbell)']);
   });
 
   it('fills in what a database from before the list was versioned is missing', () => {

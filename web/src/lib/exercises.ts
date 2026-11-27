@@ -39,14 +39,23 @@ export function seedLibrary(state: AppState, library: readonly LibraryItem[] = L
   const isNew = state.exercises.length === 0;
   if (!isNew && state.libraryVersion >= version) return;
   const known = new Set(state.exercises.map((exercise) => normalizeName(exercise.name)));
+  const ids = new Set(state.exercises.map((exercise) => exercise.id));
   for (const item of library) {
     const key = normalizeName(item.name);
-    if (known.has(key) || (!isNew && item.since <= state.libraryVersion)) continue;
+    const id = libraryId(item.name);
+    if (known.has(key) || ids.has(id) || (!isNew && item.since <= state.libraryVersion)) continue;
     known.add(key);
-    state.exercises.push(newExercise(item.name, item.muscle, item.equipment, false));
+    state.exercises.push({ ...newExercise(item.name, item.muscle, item.equipment, false), id });
   }
   state.libraryVersion = version;
 }
+
+/**
+ * A built-in exercise has the same id wherever it is added. Two devices of one
+ * account may each add the library before they have heard from the other;
+ * with ids of their own every exercise would then be there twice.
+ */
+export const libraryId = (name: string) => `lib_${normalizeName(name).replace(/[^a-z0-9]+/g, '_')}`;
 
 export interface ExerciseFields {
   name: string;

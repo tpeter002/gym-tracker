@@ -116,6 +116,9 @@ struct StrongImportView: View {
                     if let first = parsed.workouts.first?.date, let last = parsed.workouts.last?.date {
                         LabeledContent("Period", value: "\(first.formatted(date: .abbreviated, time: .omitted)) – \(last.formatted(date: .abbreviated, time: .omitted))")
                     }
+                    if parsed.skippedRows > 0 {
+                        LabeledContent("Rows skipped", value: "\(parsed.skippedRows)")
+                    }
                     if parsed.headerUnit == nil {
                         Picker("Weights in the file are in", selection: $fileUnit) {
                             ForEach(WeightUnit.allCases) { Text($0.rawValue).tag($0) }
@@ -130,7 +133,7 @@ struct StrongImportView: View {
                 }
 
                 Section {
-                    Button(parsed.workouts.count == 1 ? "Import 1 Workout" : "Import \(parsed.workouts.count) Workouts") {
+                    Button("Import \(Fmt.count(parsed.workouts.count, "Workout"))") {
                         summary = StrongImporter.apply(parsed, unit: parsed.headerUnit ?? fileUnit, context: context)
                     }
                     .fontWeight(.semibold)

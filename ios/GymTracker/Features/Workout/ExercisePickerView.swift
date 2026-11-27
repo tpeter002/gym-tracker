@@ -10,7 +10,6 @@ struct ExercisePickerView: View {
     @State private var muscle: MuscleGroup?
     @State private var selection: [Exercise] = []
     @State private var showEditor = false
-    var allowsMultiple = true
     let onAdd: ([Exercise]) -> Void
 
     private var isBrowsing: Bool { query.trimmingCharacters(in: .whitespaces).isEmpty && muscle == nil }
@@ -46,12 +45,12 @@ struct ExercisePickerView: View {
             // Down here rather than in the navigation bar: the bar is hidden
             // while the search field is active, which is exactly when you pick.
             .safeAreaInset(edge: .bottom) {
-                if allowsMultiple, !selection.isEmpty {
+                if !selection.isEmpty {
                     Button {
                         onAdd(selection)
                         dismiss()
                     } label: {
-                        Text(selection.count == 1 ? "Add 1 Exercise" : "Add \(selection.count) Exercises")
+                        Text("Add \(Fmt.count(selection.count, "Exercise"))")
                             .font(.headline)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 4)
@@ -96,11 +95,9 @@ struct ExercisePickerView: View {
             HStack {
                 ExerciseRowLabel(exercise: exercise)
                 Spacer()
-                if allowsMultiple {
-                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .font(.title3)
-                        .foregroundStyle(isSelected ? Color.accentColor : Color(.tertiaryLabel))
-                }
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(isSelected ? Color.accentColor : Color(.tertiaryLabel))
             }
             .contentShape(Rectangle())
         }
@@ -108,11 +105,6 @@ struct ExercisePickerView: View {
     }
 
     private func choose(_ exercise: Exercise) {
-        guard allowsMultiple else {
-            onAdd([exercise])
-            dismiss()
-            return
-        }
         if let index = selection.firstIndex(where: { $0 === exercise }) {
             selection.remove(at: index)
         } else {

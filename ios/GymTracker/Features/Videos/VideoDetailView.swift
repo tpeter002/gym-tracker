@@ -128,7 +128,7 @@ struct VideoDetailView: View {
                 } else if analyzerURL.trimmingCharacters(in: .whitespaces).isEmpty {
                     Text("Automatic identification needs the analyzer running on your Mac — set its address in Settings.")
                 } else if isAnalyzing {
-                    Text("Downloading and watching the video. This can take up to a minute.")
+                    Text("Downloading and watching the video. This can take a few minutes.")
                 } else if video.analyzedAt != nil, pending.isEmpty, video.exercises.isEmpty {
                     Text("The analyzer didn't recognise any exercises in this video.")
                 }
@@ -142,7 +142,7 @@ struct VideoDetailView: View {
                     dismiss()
                     afterDismissal {
                         context.delete(video)
-                        try? context.save()
+                        context.saveOrLog()
                     }
                 } label: {
                     Image(systemName: "trash")
@@ -153,7 +153,7 @@ struct VideoDetailView: View {
         .sheet(isPresented: $showPicker) {
             ExercisePickerView { chosen in
                 chosen.forEach { VideoInbox.link($0, to: video) }
-                try? context.save()
+                context.saveOrLog()
             }
         }
         .task {
@@ -176,6 +176,6 @@ struct VideoDetailView: View {
         exercise.savedVideo = nil
         exercise.wantToTry = false
         if exercise.videoURL == video.url { exercise.videoURL = nil }
-        try? context.save()
+        context.saveOrLog()
     }
 }

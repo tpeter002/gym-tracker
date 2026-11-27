@@ -92,7 +92,7 @@ struct ExerciseDetailView: View {
                     Section {
                         ForEach(session.sortedSets.filter(\.isDone)) { set in
                             HStack {
-                                Text(setText(set))
+                                Text(set.text(in: unit))
                                 if set.isWarmup {
                                     Text("warm-up")
                                         .font(.caption)
@@ -125,6 +125,7 @@ struct ExerciseDetailView: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
+                .accessibilityLabel("Exercise options")
             }
         }
         .sheet(isPresented: $showEditor) {
@@ -135,7 +136,7 @@ struct ExerciseDetailView: View {
                 dismiss()
                 afterDismissal {
                     context.delete(exercise)
-                    try? context.save()
+                    context.saveOrLog()
                 }
             }
         } message: {
@@ -143,12 +144,6 @@ struct ExerciseDetailView: View {
                  ? "It will be removed from your exercise list."
                  : "Past workouts keep their sets, but this exercise's records and history page go away.")
         }
-    }
-
-    private func setText(_ set: SetEntry) -> String {
-        let reps = set.reps.map(String.init) ?? "–"
-        guard let weight = set.weight else { return "\(reps) reps" }
-        return "\(unit.text(kg: weight)) × \(reps)"
     }
 
     /// Heaviest working set per session, oldest first, for the chart.

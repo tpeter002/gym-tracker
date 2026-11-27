@@ -25,7 +25,7 @@ final class ShareExtensionUITests: XCTestCase {
 
         // Safari keeps Share in its "…" menu; the button is named differently on iOS 26 and 27.
         let more = safari.buttons.matching(
-            NSPredicate(format: "identifier == %@ OR label IN %@", "MoreMenuButton", ["More", "Továbbiak"])
+            NSPredicate(format: "identifier == %@ OR label == %@", "MoreMenuButton", "More")
         ).firstMatch
         XCTAssertTrue(more.waitForExistence(timeout: 5), "Safari's menu button")
         more.tap()

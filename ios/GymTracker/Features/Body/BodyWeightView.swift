@@ -55,7 +55,7 @@ struct BodyWeightView: View {
                             }
                             .onDelete { offsets in
                                 offsets.map { entries[$0] }.forEach { context.delete($0) }
-                                afterDismissal { try? context.save() }
+                                afterDismissal { context.saveOrLog() }
                             }
                         }
                     }
@@ -171,7 +171,7 @@ private struct LogWeightView: View {
                     Button("Save") {
                         guard let value, value > 0 else { return }
                         context.insert(BodyWeight(date: date, kg: unit.toKg(value)))
-                        try? context.save()
+                        context.saveOrLog()
                         dismiss()
                     }
                     .fontWeight(.semibold)

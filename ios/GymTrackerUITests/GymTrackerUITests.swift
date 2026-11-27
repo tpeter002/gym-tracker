@@ -100,6 +100,9 @@ final class GymTrackerUITests: XCTestCase {
         XCTAssertEqual(weights.count, 3, "last Push session had three bench sets, so three rows are offered")
         // Last session's first set: 87.5 kg × 8 @ RPE 7.5.
         appear(app.buttons["87.5 kg × 8 @7.5"], "previous numbers for set 1")
+        // The menus that show only an icon or a number have a spoken name.
+        XCTAssertTrue(app.buttons["Bench Press (Barbell) options"].exists, "exercise menu")
+        XCTAssertTrue(app.buttons["Set 1 options"].exists, "set menu")
         snap("02-workout-empty-sets")
 
         // Set 1: tick it untouched — it takes over last time's numbers.
@@ -124,7 +127,8 @@ final class GymTrackerUITests: XCTestCase {
         appear(app.staticTexts["Finish workout?"], "finish confirmation")
         confirm("Finish")
 
-        // Lands on History with the new workout on top.
+        // Lands on History, which now lists the new workout. Not necessarily first:
+        // the demo data dates its newest session today at 18:10.
         appear(app.navigationBars["History"], "History screen")
         let summary = app.staticTexts["2 × Bench Press (Barbell)"]
         appear(summary, "the finished workout with its two ticked sets")
@@ -134,6 +138,7 @@ final class GymTrackerUITests: XCTestCase {
         appear(app.staticTexts["87.5 kg × 8"], "set 1 in the workout detail")
         appear(app.staticTexts["90 kg × 5"], "set 2 in the workout detail")
         appear(app.staticTexts["RPE 8.5"], "RPE of set 2")
+        XCTAssertTrue(app.buttons["Workout options"].exists, "toolbar menu")
         snap("05-workout-detail")
 
         // Repeat it: same exercise, two rows, offering what was just logged.
@@ -166,10 +171,21 @@ final class GymTrackerUITests: XCTestCase {
         app.buttons["Discard It and Start New"].tap()
 
         appear(app.staticTexts["Squat (Barbell)"], "the repeated Legs workout")
-        XCTAssertFalse(app.staticTexts["Pull Up"].exists, "the discarded workout is gone")
         snap("08-repeated-legs")
         app.swipeUp() // the list only builds the rows that are on screen
         appear(app.staticTexts["Leg Extension (Machine)"], "its last exercise")
+
+        // The sheet only ever shows the newest unfinished workout, so it can't
+        // tell whether the first one was deleted. Discard this one as well: the
+        // start button only comes back when no unfinished workout is left.
+        let discard = app.buttons["Discard Workout"]
+        for _ in 0..<5 where !discard.exists { app.swipeUp() }
+        discard.tap()
+        appear(app.staticTexts["Discard this workout?"], "discard confirmation")
+        confirm("Discard Workout")
+        appear(app.buttons["Repeat Workout"], "the workout detail again once the sheet is gone")
+        app.tabBars.buttons["Workout"].tap()
+        appear(app.buttons["Start Empty Workout"], "start button — neither workout is left unfinished")
     }
 
     func testCreateAndFindCustomExercise() {
@@ -316,7 +332,7 @@ final class GymTrackerUITests: XCTestCase {
             .matching(NSPredicate(format: "label BEGINSWITH %@", fileName)).firstMatch
         if !file.waitForExistence(timeout: 6) {
             // The picker opened on Recents; the file is under Browse.
-            let browse = app.buttons.matching(NSPredicate(format: "label IN %@", ["Browse", "Tallózás"])).firstMatch
+            let browse = labelled(app.buttons, "Browse").firstMatch
             if browse.exists { browse.tap() }
         }
         appear(file, "\(fileName) in the document picker")

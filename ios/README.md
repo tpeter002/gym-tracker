@@ -29,15 +29,18 @@ In Xcode, once:
 
 1. Settings → Accounts → add your Apple ID.
 2. For **both** targets (`GymTracker` and `ShareExtension`) → Signing & Capabilities → pick your
-   Personal Team. Re-pick it after re-running `xcodegen generate`, or put the team ID in
-   `DEVELOPMENT_TEAM` in `project.yml`.
+   Personal Team. Re-pick it after re-running `xcodegen generate`. The team ID is deliberately not
+   in `project.yml`, so it stays out of git; when building from the command line, export
+   `DEVELOPMENT_TEAM` and pass it on: `xcodebuild … DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM"`.
 3. Plug in the iPhone, select it as the run destination, press Run. The first time, trust the
    developer on the phone under Settings → General → VPN & Device Management.
 
 With a free Apple ID the installed app stops launching after 7 days — press Run again to renew it.
 Your data stays on the phone as long as you don't delete the app.
 
-To see the app with sample data in the simulator, add `-seedDemoData` to the scheme's launch arguments.
+If you cloned this repository: the bundle identifiers and the app group start with the owner's prefix
+(`com.torokpeter`) — change it to your own in `project.yml` and in `Shared/SharedInbox.swift`
+(`appGroup`) before signing with your team.
 
 ## Saving videos
 
@@ -77,5 +80,9 @@ are passed through to the tests):
 
 `TEST_RUNNER_SHOTS_DIR=<folder>` also writes the screenshots the tests take to that folder.
 
+The UI tests expect English system UI (Safari's menu, the share sheet, the document picker); the app
+and Safari are launched in English by the tests themselves.
+
 The app understands two launch arguments in debug builds: `-seedDemoData` (sample history) and
-`-uiTesting` (throwaway database and default settings).
+`-uiTesting` (throwaway database and default settings). Add them to the scheme's launch arguments to
+use them when running from Xcode.

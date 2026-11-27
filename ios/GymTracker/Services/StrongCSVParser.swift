@@ -135,9 +135,10 @@ enum StrongCSVParser {
             if setOrder.contains("rest") { continue }
 
             let weight = Fmt.parseDecimal(cell(weightCol)).flatMap { $0 > 0 ? $0 : nil }
-            var reps = Fmt.parseDecimal(cell(repsCol)).map { Int($0.rounded()) }.flatMap { $0 > 0 ? $0 : nil }
+            var reps = Fmt.parseDecimal(cell(repsCol)).flatMap(plausible)
+                .map { Int($0.rounded()) }.flatMap { $0 > 0 ? $0 : nil }
             // Timed exercises (planks…) carry seconds instead of reps.
-            if reps == nil, let seconds = Fmt.parseDecimal(cell(secondsCol)), seconds > 0 {
+            if reps == nil, let seconds = Fmt.parseDecimal(cell(secondsCol)).flatMap(plausible) {
                 reps = Int(seconds.rounded())
             }
             guard weight != nil || reps != nil else {
@@ -158,11 +159,21 @@ enum StrongCSVParser {
         return result
     }
 
+    /// Reps and seconds beyond this are a garbled cell, not a set or a workout.
+    private static let largestPlausible = 100_000.0
+
+    /// `value` when it is a positive count that can be believed, otherwise nil.
+    /// A cell like "1e19" or "inf" parses as a number, but turning it into an
+    /// `Int` — here or later, when a duration is formatted — traps.
+    private static func plausible(_ value: Double) -> Double? {
+        value > 0 && value <= largestPlausible ? value : nil
+    }
+
     /// "1h 5m", "45m", "30s" or plain seconds.
     static func duration(_ raw: String) -> TimeInterval? {
         let text = raw.trimmingCharacters(in: .whitespaces).lowercased()
         guard !text.isEmpty else { return nil }
-        if let seconds = Double(text) { return seconds > 0 ? seconds : nil }
+        if let seconds = Double(text) { return plausible(seconds) }
         var total = 0.0
         var digits = ""
         for character in text {
@@ -179,7 +190,7 @@ enum StrongCSVParser {
             }
             digits = ""
         }
-        return total > 0 ? total : nil
+        return plausible(total)
     }
 
     /// RFC 4180 record splitter: quoted fields may contain the delimiter,

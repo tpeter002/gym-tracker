@@ -14,7 +14,7 @@ enum VideoInbox {
     /// Pulls in whatever the share extension collected since the last launch.
     static func ingestShared(_ context: ModelContext) {
         for item in SharedInbox.drain() {
-            add(item.url, context: context)
+            add(item.url, sharedAt: item.date, context: context)
         }
     }
 
@@ -30,9 +30,28 @@ enum VideoInbox {
             defer { isSweeping = false }
             guard await VideoAnalyzer.isReachable() else { return }
             for video in waiting where isLive(video) && video.analyzedAt == nil {
-                attempted.insert(video.url)
-                await analyze(video, context: context)
+                let link = video.url
+                attempted.insert(link)
+                if case .failure(let error) = await analyze(video, context: context), neverReachedAnalyzer(error) {
+                    // The analyzer went out of reach mid-sweep. This video wasn't
+                    // tried and the rest wouldn't be either; leave them for next time.
+                    attempted.remove(link)
+                    break
+                }
             }
+        }
+    }
+
+    /// True when the request can't have got as far as the analyzer, so trying
+    /// again costs nothing. A timeout doesn't count: the analysis may well have
+    /// run, model call included, and must not be repeated on every activation.
+    static func neverReachedAnalyzer(_ error: Error) -> Bool {
+        guard let error = error as? URLError else { return false }
+        switch error.code {
+        case .cannotFindHost, .cannotConnectToHost, .notConnectedToInternet, .networkConnectionLost, .dnsLookupFailed:
+            return true
+        default:
+            return false
         }
     }
 
@@ -49,20 +68,30 @@ enum VideoInbox {
         add(link, context: context)
     }
 
+    /// `sharedAt` is when the link was shared, for one that waited in the share
+    /// extension's inbox; without it the video is dated now.
     @discardableResult
-    static func add(_ raw: String, context: ModelContext) -> SavedVideo? {
+    static func add(_ raw: String, sharedAt: Date? = nil, context: ModelContext) -> SavedVideo? {
         guard let url = SharedInbox.firstURL(in: raw) else { return nil }
         let link = canonical(url)
         let all = (try? context.fetch(FetchDescriptor<SavedVideo>())) ?? []
         if let existing = all.first(where: { $0.url == link }) { return existing }
 
         let video = SavedVideo(url: link)
+        if let sharedAt { video.addedAt = sharedAt }
         context.insert(video)
-        try? context.save()
+        context.saveOrLog()
+        // Claimed before anything is tried: the sweep that follows `ingestShared`
+        // would otherwise analyze the same video a second time.
         attempted.insert(link)
         Task {
             await fetchPreview(for: video)
             guard isLive(video) else { return }
+            // Nothing was tried, so the next sweep may.
+            guard await VideoAnalyzer.isReachable() else {
+                attempted.remove(link)
+                return
+            }
             await analyze(video, context: context)
         }
         return video
@@ -135,7 +164,7 @@ enum VideoInbox {
             if let title = result.title, !title.isEmpty, video.title.isEmpty || video.title == video.source {
                 video.title = title
             }
-            try? context.save()
+            context.saveOrLog()
             return .success(result.exercises)
         } catch {
             return .failure(error)
@@ -161,7 +190,8 @@ enum VideoInbox {
                 name: suggestion.name,
                 muscle: suggestion.muscleGroup.flatMap(MuscleGroup.init(rawValue:))
                     ?? StrongImporter.guessMuscle(suggestion.name),
-                equipment: suggestion.equipment.flatMap(Equipment.init(rawValue:)) ?? .other,
+                equipment: suggestion.equipment.flatMap(Equipment.init(rawValue:))
+                    ?? StrongImporter.guessEquipment(suggestion.name),
                 isCustom: true
             )
             context.insert(exercise)
@@ -171,7 +201,7 @@ enum VideoInbox {
         if let how = suggestion.notes, !how.isEmpty { lines.append(how) }
         if let prescription = suggestion.setsReps, !prescription.isEmpty { lines.append("From the video: \(prescription)") }
         if exercise.notes.isEmpty { exercise.notes = lines.joined(separator: "\n") }
-        try? context.save()
+        context.saveOrLog()
         return exercise
     }
 

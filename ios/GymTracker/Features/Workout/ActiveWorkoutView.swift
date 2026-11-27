@@ -197,6 +197,7 @@ private struct ExerciseEntrySection: View {
                     .frame(width: 32, height: 28)
                     .contentShape(Rectangle())
             }
+            .accessibilityLabel("\(entry.displayName) options")
         }
     }
 
@@ -242,6 +243,8 @@ private struct SetRow: View {
                     .frame(width: Self.labelWidth, height: 34)
                     .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
             }
+            // On its own the label reads as just "1" or "W".
+            .accessibilityLabel(set.isWarmup ? "Warm-up set options" : "Set \(label) options")
 
             Button(action: usePrevious) {
                 Text(previousText)
@@ -328,7 +331,7 @@ private struct SetRow: View {
         guard set.reps != nil else { return } // nothing to log yet
         set.isDone = true
         // A ticked set is the point of the app; don't leave it to autosave.
-        try? context.save()
+        context.saveOrLog()
     }
 }
 

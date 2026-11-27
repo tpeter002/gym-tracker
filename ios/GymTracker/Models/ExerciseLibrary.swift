@@ -4,7 +4,9 @@ import SwiftData
 /// Built-in exercises, seeded on first launch. Names follow the
 /// "Movement (Equipment)" convention so a Strong export lines up with them.
 enum ExerciseLibrary {
-    /// Bump when adding lines below; missing ones get inserted on next launch.
+    /// Bump when adding lines below. The next launch then inserts every built-in
+    /// that isn't in the store: the new ones, and also any that were deleted
+    /// since the last bump.
     static let version = 1
 
     struct Item {
@@ -34,7 +36,7 @@ enum ExerciseLibrary {
         for item in all where known.insert(Exercise.normalize(item.name)).inserted {
             context.insert(Exercise(name: item.name, muscle: item.muscle, equipment: item.equipment))
         }
-        try? context.save()
+        context.saveOrLog()
         UserDefaults.standard.set(version, forKey: key)
     }
 

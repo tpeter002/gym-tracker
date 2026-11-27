@@ -85,7 +85,7 @@ struct ExerciseEditorView: View {
         _name = State(initialValue: exercise?.name ?? suggestedName)
         _muscle = State(initialValue: exercise?.muscle
             ?? (suggestedName.isEmpty ? .other : StrongImporter.guessMuscle(suggestedName)))
-        _equipment = State(initialValue: exercise?.equipment ?? .other)
+        _equipment = State(initialValue: exercise?.equipment ?? StrongImporter.guessEquipment(suggestedName))
         _notes = State(initialValue: exercise?.notes ?? "")
         _videoURL = State(initialValue: exercise?.videoURL ?? "")
     }
@@ -162,7 +162,7 @@ struct ExerciseEditorView: View {
         target.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         let link = videoURL.trimmingCharacters(in: .whitespacesAndNewlines)
         target.videoURL = link.isEmpty ? nil : link
-        try? context.save()
+        context.saveOrLog()
         onSave(target)
         dismiss()
     }

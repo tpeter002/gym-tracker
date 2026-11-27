@@ -15,16 +15,9 @@ final class AppRouter {
     /// Set when the user tries to start a workout while another is running.
     var conflict: StartRequest?
 
-    enum StartRequest: Identifiable {
+    enum StartRequest {
         case empty
         case repeating(Workout)
-
-        var id: String {
-            switch self {
-            case .empty: "empty"
-            case .repeating(let workout): "\(workout.persistentModelID.hashValue)"
-            }
-        }
     }
 
     func start(_ request: StartRequest, in context: ModelContext) {
@@ -96,7 +89,7 @@ struct RootView: View {
             } else {
                 // Typed-in numbers that haven't been ticked off yet: iOS may not
                 // bring a backgrounded app back.
-                try? context.save()
+                context.saveOrLog()
             }
         }
         .onOpenURL { VideoInbox.handle($0, context: context) }

@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SwiftData
 
 enum MuscleGroup: String, CaseIterable, Identifiable, Codable {
@@ -152,6 +153,15 @@ final class SetEntry {
     }
 }
 
+extension SetEntry {
+    /// "82.5 kg × 8", or "12 reps" for a set without weight.
+    func text(in unit: WeightUnit) -> String {
+        let reps = reps.map(String.init) ?? "–"
+        guard let weight else { return "\(reps) reps" }
+        return "\(unit.text(kg: weight)) × \(reps)"
+    }
+}
+
 extension Array where Element == SetEntry {
     /// Working sets are numbered 1, 2, 3…; warm-ups show "W" and don't count.
     var rowLabels: [String] {
@@ -207,4 +217,27 @@ final class SavedVideo {
     }
 
     var displayTitle: String { title.isEmpty ? "\(source) video" : title }
+}
+
+extension ModelContext {
+    private static let storageLog = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "GymTracker",
+        category: "storage"
+    )
+
+    /// How long a row or a screen takes to animate away. SwiftData traps when a
+    /// view reads a model whose delete has been saved, so a delete of something
+    /// still on screen is saved only after this.
+    static let screenSettleNanoseconds: UInt64 = 600_000_000
+
+    /// Saves, and leaves a trace when that fails. Nothing here can recover from
+    /// a failed save, but one that goes unrecorded looks like a save that worked
+    /// until the data turns out to be missing.
+    func saveOrLog() {
+        do {
+            try save()
+        } catch {
+            Self.storageLog.error("Saving failed: \(String(describing: error), privacy: .public)")
+        }
+    }
 }

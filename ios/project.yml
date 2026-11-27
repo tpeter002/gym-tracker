@@ -1,6 +1,5 @@
 name: GymTracker
 options:
-  bundleIdPrefix: com.torokpeter
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
@@ -12,7 +11,9 @@ settings:
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Automatic
-    # Pick your Personal Team once in Xcode (Signing & Capabilities) or put its ID here.
+    # Left empty so the team ID stays out of git. Pick your Personal Team in Xcode
+    # (Signing & Capabilities) after generating, or export DEVELOPMENT_TEAM and
+    # pass it to xcodebuild: `xcodebuild … DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM"`.
     DEVELOPMENT_TEAM: ""
 
 targets:

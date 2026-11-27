@@ -46,18 +46,19 @@ final class ShareViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         Task { @MainActor in
-            let saved: Bool
+            // Two different failures: nothing to save, or nowhere to put it.
+            let failure: String?
             if let url = await extractURL() {
-                saved = SharedInbox.append(url)
+                failure = SharedInbox.append(url) ? nil : "Couldn't save the link"
             } else {
-                saved = false
+                failure = "Couldn't find a link to save"
             }
-            if saved {
+            if let failure {
+                show(symbol: "exclamationmark.triangle.fill", text: failure, tint: .systemOrange)
+            } else {
                 show(symbol: "checkmark.circle.fill", text: "Saved to Gym Tracker", tint: .systemGreen)
-            } else {
-                show(symbol: "exclamationmark.triangle.fill", text: "Couldn't find a link to save", tint: .systemOrange)
             }
-            try? await Task.sleep(nanoseconds: saved ? 900_000_000 : 1_800_000_000)
+            try? await Task.sleep(nanoseconds: failure == nil ? 900_000_000 : 1_800_000_000)
             extensionContext?.completeRequest(returningItems: nil)
         }
     }
@@ -74,7 +75,7 @@ final class ShareViewController: UIViewController {
 
         for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
             let item = try? await provider.loadItem(forTypeIdentifier: UTType.url.identifier)
-            if let url = item as? URL, url.scheme?.lowercased().hasPrefix("http") == true {
+            if let url = item as? URL, let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" {
                 return url
             }
         }

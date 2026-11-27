@@ -29,7 +29,7 @@ struct AnalysisResult: Codable {
     var exercises: [ExerciseSuggestion]
 }
 
-/// Client for the small analyzer service in `server/` (download → frames → Claude).
+/// Client for the small analyzer service in `server/` (download → frames → a vision model).
 enum VideoAnalyzer {
     enum Failure: LocalizedError {
         case notConfigured
@@ -85,6 +85,12 @@ enum VideoAnalyzer {
             let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["detail"] as? String
             throw Failure.server(detail ?? "The analyzer returned an error (\(http.statusCode)).")
         }
-        return try JSONDecoder().decode(AnalysisResult.self, from: data)
+        do {
+            return try JSONDecoder().decode(AnalysisResult.self, from: data)
+        } catch {
+            // Foundation's decoding errors name JSON keys and types; that text
+            // would be shown as it is under the Identify button.
+            throw Failure.server("The analyzer's answer couldn't be read.")
+        }
     }
 }

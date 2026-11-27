@@ -62,13 +62,12 @@ struct IntegerField: View {
 /// Horizontal chips for narrowing the exercise list to one muscle group.
 struct MuscleFilterBar: View {
     @Binding var selection: MuscleGroup?
-    var available: [MuscleGroup] = MuscleGroup.allCases
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 chip("All", isOn: selection == nil) { selection = nil }
-                ForEach(available) { muscle in
+                ForEach(MuscleGroup.allCases) { muscle in
                     chip(muscle.title, isOn: selection == muscle) {
                         selection = selection == muscle ? nil : muscle
                     }
@@ -200,7 +199,7 @@ enum ExerciseSearch {
 @MainActor
 func afterDismissal(_ action: @escaping @MainActor () -> Void) {
     Task { @MainActor in
-        try? await Task.sleep(nanoseconds: 600_000_000)
+        try? await Task.sleep(nanoseconds: ModelContext.screenSettleNanoseconds)
         action()
     }
 }

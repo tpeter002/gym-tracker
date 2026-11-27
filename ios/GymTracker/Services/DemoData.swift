@@ -56,7 +56,7 @@ enum DemoData {
         for name in ["Face Pull (Cable)", "Reverse Fly (Cable)"] {
             if let found = exercise(name) { VideoInbox.link(found, to: video) }
         }
-        try? context.save()
+        context.saveOrLog()
     }
 }
 #endif

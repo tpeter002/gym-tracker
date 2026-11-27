@@ -29,7 +29,7 @@ struct SavedVideosView: View {
                     }
                     .onDelete { offsets in
                         offsets.map { videos[$0] }.forEach { context.delete($0) }
-                        afterDismissal { try? context.save() }
+                        afterDismissal { context.saveOrLog() }
                     }
                 }
             }
@@ -78,10 +78,10 @@ private struct VideoRow: View {
 
     private var status: String {
         if !video.exercises.isEmpty {
-            return "\(video.exercises.count) exercise\(video.exercises.count == 1 ? "" : "s") added"
+            return "\(Fmt.count(video.exercises.count, "exercise")) added"
         }
         let found = VideoInbox.suggestions(for: video).count
-        if found > 0 { return "\(found) exercise\(found == 1 ? "" : "s") found — review" }
+        if found > 0 { return "\(Fmt.count(found, "exercise")) found — review" }
         return video.analyzedAt == nil ? "Not identified yet" : "No exercises found"
     }
 }

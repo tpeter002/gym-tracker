@@ -226,4 +226,64 @@ final class DataFlowTests: XCTestCase {
         XCTAssertEqual(SharedInbox.firstURL(in: shared)?.host, "www.tiktok.com")
         XCTAssertNil(SharedInbox.firstURL(in: "no link here"))
     }
+
+    /// Only a failure that can't have cost a model call may be retried by itself.
+    func testOnlyConnectionFailuresCountAsNeverReachingTheAnalyzer() {
+        let unreached: [URLError.Code] = [
+            .cannotFindHost, .cannotConnectToHost, .notConnectedToInternet, .networkConnectionLost, .dnsLookupFailed,
+        ]
+        for code in unreached {
+            XCTAssertTrue(VideoInbox.neverReachedAnalyzer(URLError(code)), "URLError code \(code.rawValue)")
+        }
+
+        XCTAssertFalse(VideoInbox.neverReachedAnalyzer(URLError(.timedOut)),
+                       "the analysis may have run before the phone gave up waiting")
+        XCTAssertFalse(VideoInbox.neverReachedAnalyzer(VideoAnalyzer.Failure.server("The video couldn't be downloaded.")))
+        let unreadable = DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "not JSON"))
+        XCTAssertFalse(VideoInbox.neverReachedAnalyzer(unreadable))
+        XCTAssertFalse(VideoInbox.neverReachedAnalyzer(CancellationError()))
+    }
+
+    /// A link that is new always starts a preview fetch, so only the paths that
+    /// end before it are covered here.
+    func testSharingASavedLinkAgainKeepsTheVideoAndItsDate() throws {
+        let firstShared = Date(timeIntervalSinceReferenceDate: 700_000_000)
+        let saved = SavedVideo(url: "https://www.instagram.com/reel/Cxyz123/")
+        saved.addedAt = firstShared
+        context.insert(saved)
+        try context.save()
+
+        let again = VideoInbox.add("https://www.instagram.com/reel/Cxyz123/?igsh=abc123",
+                                   sharedAt: Date(), context: context)
+
+        XCTAssertTrue(again === saved, "the same clip under another share link is the same video")
+        XCTAssertEqual(saved.addedAt, firstShared)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<SavedVideo>()), 1)
+        XCTAssertNil(VideoInbox.add("no link here", sharedAt: Date(), context: context))
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<SavedVideo>()), 1)
+    }
+
+    func testAdoptedExerciseTakesEquipmentFromItsNameWhenTheAnalyzerGivesNone() throws {
+        let video = SavedVideo(url: "https://www.youtube.com/shorts/abc")
+        context.insert(video)
+        let unnamed = ExerciseSuggestion(name: "Zercher Carry (Kettlebell)")
+        let named = ExerciseSuggestion(name: "Jefferson Curl (Barbell)", equipment: "dumbbell")
+
+        let guessed = VideoInbox.adopt(unnamed, from: video, context: context)
+        let given = VideoInbox.adopt(named, from: video, context: context)
+
+        XCTAssertEqual(guessed.equipment, .kettlebell)
+        XCTAssertEqual(given.equipment, .dumbbell, "what the analyzer says wins over the guess")
+        XCTAssertTrue(guessed.wantToTry)
+        XCTAssertTrue(guessed.savedVideo === video)
+    }
+
+    // MARK: Formatting
+
+    func testSetTextWithAndWithoutWeight() {
+        XCTAssertEqual(SetEntry(order: 0, weight: 80, reps: 8).text(in: .kg), "80 kg × 8")
+        XCTAssertEqual(SetEntry(order: 0, reps: 12).text(in: .kg), "12 reps")
+        XCTAssertEqual(SetEntry(order: 0, weight: 80).text(in: .kg), "80 kg × –")
+        XCTAssertEqual(SetEntry(order: 0, weight: 45.359237, reps: 5).text(in: .lb), "100 lb × 5")
+    }
 }

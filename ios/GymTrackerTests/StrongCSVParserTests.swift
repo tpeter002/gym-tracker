@@ -78,6 +78,38 @@ final class StrongCSVParserTests: XCTestCase {
         XCTAssertNil(StrongCSVParser.duration(""))
     }
 
+    /// Each of these parses as a number that an `Int` can't hold; converting
+    /// one used to crash the import, or the History screen after it.
+    func testGarbledNumbersAreTreatedAsMissing() throws {
+        let csv = """
+        Date,Workout Name,Duration,Exercise Name,Set Order,Weight,Reps,Distance,Seconds,Notes,Workout Notes,RPE
+        2023-03-01 18:05:10,"Push",inf,"Bench Press (Barbell)",1,80.0,1e19,0,0,"","",
+        2023-03-01 18:05:10,"Push",inf,"Bench Press (Barbell)",2,82.5,inf,0,0,"","",
+        2023-03-01 18:05:10,"Push",inf,"Plank",1,0,0,0,1e19,"","",
+        2023-03-01 18:05:10,"Push",inf,"Plank",2,0,inf,0,60,"","",
+        """
+        let result = try StrongCSVParser.parse(csv)
+
+        let push = try XCTUnwrap(result.workouts.first)
+        XCTAssertNil(push.duration)
+        XCTAssertEqual(push.exercises.map(\.name), ["Bench Press (Barbell)", "Plank"])
+        XCTAssertEqual(push.exercises[0].sets, [
+            .init(weight: 80, reps: nil, rpe: nil),
+            .init(weight: 82.5, reps: nil, rpe: nil),
+        ], "the weight is still worth keeping")
+        XCTAssertEqual(push.exercises[1].sets, [.init(weight: nil, reps: 60, rpe: nil)])
+        XCTAssertEqual(result.skippedRows, 1, "the plank row with nothing usable in it")
+    }
+
+    func testDurationRejectsWhatCannotBeAWorkoutLength() {
+        XCTAssertNil(StrongCSVParser.duration("inf"))
+        XCTAssertNil(StrongCSVParser.duration("nan"))
+        XCTAssertNil(StrongCSVParser.duration("1e19"))
+        XCTAssertNil(StrongCSVParser.duration("99999999999999999999h"))
+        XCTAssertNil(StrongCSVParser.duration("-5"))
+        XCTAssertEqual(StrongCSVParser.duration("100000"), 100_000)
+    }
+
     func testMuscleGuessPrefersTheMoreSpecificKeyword() {
         XCTAssertEqual(StrongImporter.guessMuscle("Seated Leg Curl (Machine)"), .hamstrings)
         XCTAssertEqual(StrongImporter.guessMuscle("Hammer Curl (Dumbbell)"), .biceps)

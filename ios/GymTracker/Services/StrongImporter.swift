@@ -70,7 +70,7 @@ enum StrongImporter {
             }
             summary.workouts += 1
         }
-        try? context.save()
+        context.saveOrLog()
         return summary
     }
 

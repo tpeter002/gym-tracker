@@ -24,7 +24,7 @@ enum WorkoutService {
     static func startEmpty(in context: ModelContext) -> Workout {
         let workout = Workout(name: defaultName())
         context.insert(workout)
-        try? context.save()
+        context.saveOrLog()
         return workout
     }
 
@@ -43,7 +43,7 @@ enum WorkoutService {
             }
             order += 1
         }
-        try? context.save()
+        context.saveOrLog()
         return workout
     }
 
@@ -56,12 +56,12 @@ enum WorkoutService {
             let isWarmup = index < previous.count ? previous[index].isWarmup : false
             insert(SetEntry(order: index, isWarmup: isWarmup), into: entry, context: context)
         }
-        try? context.save()
+        context.saveOrLog()
     }
 
     static func addSet(to entry: WorkoutExercise, in context: ModelContext) {
         insert(SetEntry(order: (entry.sets.map(\.order).max() ?? -1) + 1), into: entry, context: context)
-        try? context.save()
+        context.saveOrLog()
     }
 
     /// Deletes a set whose row is on screen.
@@ -82,8 +82,8 @@ enum WorkoutService {
     /// the row is taken out of its list first and the save follows the animation.
     private static func saveOnceRowsAreGone(_ context: ModelContext) {
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 600_000_000)
-            try? context.save()
+            try? await Task.sleep(nanoseconds: ModelContext.screenSettleNanoseconds)
+            context.saveOrLog()
         }
     }
 
@@ -150,7 +150,7 @@ enum WorkoutService {
             }
         }
         // Deletes show up in the relationship arrays once they're saved.
-        try? context.save()
+        context.saveOrLog()
 
         for (index, entry) in workout.sortedEntries.enumerated() {
             entry.order = index
@@ -161,11 +161,11 @@ enum WorkoutService {
             workout.name = defaultName(for: workout.startedAt)
         }
         workout.endedAt = endedAt
-        try? context.save()
+        context.saveOrLog()
     }
 
     static func delete(_ workout: Workout, in context: ModelContext) {
         context.delete(workout)
-        try? context.save()
+        context.saveOrLog()
     }
 }

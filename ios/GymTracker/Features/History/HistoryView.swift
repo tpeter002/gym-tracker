@@ -61,7 +61,7 @@ struct HistoryView: View {
                                 HStack {
                                     Text(month.start.formatted(.dateTime.month(.wide).year()))
                                     Spacer()
-                                    Text("\(month.workouts.count) workout\(month.workouts.count == 1 ? "" : "s")")
+                                    Text(Fmt.count(month.workouts.count, "workout"))
                                 }
                             }
                         }
@@ -110,7 +110,7 @@ struct WorkoutDetailView: View {
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(set.isWarmup ? Color.orange : Color.secondary)
                                 .frame(width: 28, alignment: .leading)
-                            Text(setText(set))
+                            Text(set.text(in: unit))
                             Spacer()
                             if let rpe = set.rpe {
                                 Text(effort.label(rpe: rpe))
@@ -158,6 +158,7 @@ struct WorkoutDetailView: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
+                .accessibilityLabel("Workout options")
             }
         }
         .confirmationDialog("Delete this workout?", isPresented: $confirmDelete, titleVisibility: .visible) {
@@ -166,11 +167,5 @@ struct WorkoutDetailView: View {
                 afterDismissal { WorkoutService.delete(workout, in: context) }
             }
         }
-    }
-
-    private func setText(_ set: SetEntry) -> String {
-        let reps = set.reps.map(String.init) ?? "–"
-        guard let weight = set.weight else { return "\(reps) reps" }
-        return "\(unit.text(kg: weight)) × \(reps)"
     }
 }

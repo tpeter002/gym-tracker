@@ -243,6 +243,22 @@ describe('the rank of a lift', () => {
     expect(titleOf(state, 'Squat (Barbell)', { includeActive: true })).toBe('Silver I');
   });
 
+  it('can be asked for as it stood at an earlier moment', () => {
+    const state = lifter(80);
+    log(state, 'Bench Press (Barbell)', [[80, 1]], { daysAgo: 21 });
+    log(state, 'Bench Press (Barbell)', [[100, 1]], { daysAgo: 14 });
+    log(state, 'Squat (Barbell)', [[140, 1]], { daysAgo: 7 });
+    const at = (daysAgo: number) => liftRanks(state, { until: NOW - daysAgo * DAY }).map((rank) => [rank.exercise.name, rankTitle(rank)]);
+
+    expect(at(22)).toEqual([]);
+    expect(at(21)).toEqual([['Bench Press (Barbell)', 'Silver II']]); // a workout started at that very moment counts
+    expect(at(15)).toEqual([['Bench Press (Barbell)', 'Silver II']]);
+    expect(at(14)).toEqual([['Bench Press (Barbell)', 'Gold II']]);
+    expect(at(7)).toEqual([['Squat (Barbell)', 'Gold II'], ['Bench Press (Barbell)', 'Gold II']]);
+    // Without a moment it is everything, as before.
+    expect(liftRanks(state)).toEqual(liftRanks(state, { until: NOW }));
+  });
+
   it("measures women against women's standards", () => {
     const man = lifter(60, 'men');
     const woman = lifter(60, 'women');

@@ -207,6 +207,44 @@ test('a set that lifts a rank is celebrated once, and the badge follows', async 
   await expect(lifts(page).getByRole('link')).toHaveCount(10);
 });
 
+test("a finished workout's page shows each lift's rank as it stood then, and what the workout earned", async ({ page }) => {
+  await seedRanked(page);
+  await page.goto('/#/history');
+  const pushes = page.getByRole('main').getByRole('link', { name: /Push/ });
+
+  // The latest push day took the bench press from Gold II to Gold III.
+  await pushes.first().click();
+  const bench = page.getByRole('region', { name: 'Bench Press (Barbell)' });
+  await expect(bench).toContainText('Gold III');
+  await expect(bench).toContainText('Up from Gold II');
+  await expect(page.getByRole('region', { name: 'Overhead Press (Dumbbell)' })).toContainText('Platinum I');
+  await expect(page.getByRole('region', { name: 'Triceps Rope Pushdown (Cable)' })).toContainText('Up from Silver III');
+
+  // The pull-ups of the latest pull day were the same nine as every week: a rank, and nothing earned.
+  await page.goto('/#/history');
+  await page.getByRole('main').getByRole('link', { name: /Pull/ }).first().click();
+  const pullUp = page.getByRole('region', { name: 'Pull Up' });
+  await expect(pullUp).toContainText('Silver I');
+  await expect(pullUp).not.toContainText('Up from');
+  await expect(pullUp).not.toContainText('First rank');
+
+  // The first push day ever is where each of its lifts got a rank at all — the rank of that day, not today's.
+  await page.goto('/#/history');
+  await pushes.last().click();
+  const first = page.getByRole('region', { name: 'Bench Press (Barbell)' });
+  await expect(first).toContainText('Gold II');
+  await expect(first).toContainText('First rank');
+  await expect(first).not.toContainText('Gold III');
+
+  // With ranks off the page is what it was.
+  await page.goto('/#/settings');
+  await choose(page, 'Off');
+  await page.goto('/#/history');
+  await pushes.first().click();
+  await expect(page.getByRole('region', { name: 'Bench Press (Barbell)' })).toContainText('87.5 kg × 8');
+  await expect(page.getByRole('region', { name: 'Bench Press (Barbell)' })).not.toContainText('Gold');
+});
+
 test('with ranks off, a workout shows no badges and celebrates nothing', async ({ page }) => {
   await seed(page);
   await page.goto('/#/');

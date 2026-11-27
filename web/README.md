@@ -144,7 +144,9 @@ lift counts for more at a lower body weight. The overall rank is the average of 
 and leg lift; a part of the body with nothing ranked counts as zero.
 
 In a running workout each ranked lift shows its emblem, and a set that lifts it a step is celebrated
-on the spot. The emblems are drawn in code (`src/ui/RankBadge.tsx`); the animation is switched off
+on the spot. A finished workout's page shows, for each of its lifts, the rank as it stood once that
+workout was done — and "Up from Gold II" or "First rank" where the workout earned it. (Past ranks
+are measured against today's body weight, like all the others.) The emblems are drawn in code (`src/ui/RankBadge.tsx`); the animation is switched off
 for anyone who has asked their device to reduce motion.
 
 The yardsticks live in `src/lib/standards.ts`, one line per exercise. The big barbell lifts and

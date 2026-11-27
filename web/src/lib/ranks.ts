@@ -157,10 +157,11 @@ interface Best {
 }
 
 /** The best working set of every exercise, by exercise id. Warm-ups and unticked sets don't count. */
-function bestSets(workouts: readonly Workout[], bodyKg: number, includeActive: boolean): Map<string, Best> {
+function bestSets(workouts: readonly Workout[], bodyKg: number, includeActive: boolean, until: number): Map<string, Best> {
   const found = new Map<string, Best>();
   for (const workout of workouts) {
     if (workout.endedAt === null && !includeActive) continue;
+    if (workout.startedAt > until) continue;
     for (const entry of workout.entries) {
       if (!entry.exerciseId) continue;
       for (const set of entry.sets) {
@@ -212,12 +213,14 @@ export interface LiftRank extends Rank {
 /**
  * The rank of every exercise that has a standard and a logged working set,
  * strongest first. Empty until a body weight is logged and standards are
- * chosen. `includeActive` counts the workout in progress as well.
+ * chosen. `includeActive` counts the workout in progress as well. `until`
+ * leaves out workouts started after that moment: the ranks as they stood
+ * then, measured against today's body weight.
  */
-export function liftRanks(state: AppState, { includeActive = false } = {}): LiftRank[] {
+export function liftRanks(state: AppState, { includeActive = false, until = Infinity } = {}): LiftRank[] {
   const setup = rankSetup(state);
   if (!setup) return [];
-  const bests = bestSets(state.workouts, setup.bodyKg, includeActive);
+  const bests = bestSets(state.workouts, setup.bodyKg, includeActive, until);
   const ranks: LiftRank[] = [];
   for (const exercise of state.exercises) {
     const best = bests.get(exercise.id);

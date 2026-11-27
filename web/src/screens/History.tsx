@@ -1,7 +1,8 @@
-import { Ellipsis, History as HistoryIcon, RotateCw } from 'lucide-react';
+import { Ellipsis, History as HistoryIcon, RotateCw, TrendingUp } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { requestStart } from '../lib/actions';
 import { connections, loadConnections, sending, sendWorkout } from '../lib/exports';
+import { liftRanks, rankTitle } from '../lib/ranks';
 import { goBack } from '../lib/router';
 import { update, useSignal } from '../lib/store';
 import { EXPORT_TARGET_TITLES, EXPORT_TARGETS } from '../lib/types';
@@ -12,6 +13,7 @@ import { EmptyState, Link, Page, Section, ValueRow } from '../ui/layout';
 import { Spinner } from '../ui/controls';
 import { ConfirmDialog, Menu } from '../ui/overlays';
 import { DumbbellToggle, WorkoutRow } from '../ui/parts';
+import { RankBadge } from '../ui/RankBadge';
 
 /** Every finished workout, newest first, grouped by month. */
 export function History({ state }: { state: AppState }) {
@@ -102,6 +104,12 @@ export function WorkoutDetail({ state, workout }: { state: AppState; workout: Wo
   const seconds = durationSeconds(workout);
   const volume = volumeKg(workout);
   const known = useMemo(() => new Map(state.exercises.map((exercise) => [exercise.id, exercise])), [state.exercises]);
+  // Each lift's rank as it stood once this workout was done, and just before it — the difference is what the workout earned.
+  const [ranks, ranksBefore] = useMemo(
+    () => [workout.startedAt, workout.startedAt - 1].map((until) =>
+      new Map(liftRanks(state, { until }).map((rank) => [rank.exercise.id, rank]))),
+    [state.workouts, state.exercises, state.bodyWeights, state.settings.rankStandards, workout.startedAt],
+  );
 
   return (
     <Page
@@ -128,6 +136,9 @@ export function WorkoutDetail({ state, workout }: { state: AppState; workout: Wo
       {workout.entries.map((entry) => {
         const labels = rowLabels(entry.sets);
         const exercise = entry.exerciseId !== null ? known.get(entry.exerciseId) : undefined;
+        const rank = exercise && ranks.get(exercise.id);
+        const before = exercise && ranksBefore.get(exercise.id);
+        const rose = rank && (!before || rank.step > before.step);
         return (
           <Section
             key={entry.id}
@@ -135,6 +146,18 @@ export function WorkoutDetail({ state, workout }: { state: AppState; workout: Wo
             aside={takesDumbbells(exercise) && <DumbbellToggle workoutId={workout.id} entry={entry} />}
             footer={entry.notes}
           >
+            {rank && (
+              <div className="row rank-line">
+                <RankBadge rank={rank} size={30} decorative />
+                <span className="grow">{rankTitle(rank)}</span>
+                {rose && (
+                  <span className="rank-rise">
+                    <TrendingUp size={15} aria-hidden />
+                    {before ? `Up from ${rankTitle(before)}` : 'First rank'}
+                  </span>
+                )}
+              </div>
+            )}
             {entry.sets.map((set, index) => (
               <div key={set.id} className="row numeric">
                 <span className={set.isWarmup ? 'warm small' : 'secondary small'} style={{ width: 20, fontWeight: 600 }}>

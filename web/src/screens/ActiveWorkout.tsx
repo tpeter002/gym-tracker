@@ -1,6 +1,8 @@
 import { Check, ChevronDown, CirclePlus, Ellipsis, Plus, SquarePlay } from 'lucide-react';
-import { memo, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { queueExports, sendWaiting } from '../lib/exports';
+import { liftRanks, rankUps } from '../lib/ranks';
+import type { LiftRank, RankUp } from '../lib/ranks';
 import { goBack, navigate } from '../lib/router';
 import { update } from '../lib/store';
 import { toTryFor } from '../lib/suggestions';
@@ -15,10 +17,49 @@ import { DecimalField, IntegerField } from '../ui/controls';
 import { Page, Section } from '../ui/layout';
 import { ConfirmDialog, Menu } from '../ui/overlays';
 import { ElapsedTime, ExerciseLabel } from '../ui/parts';
+import { RankBadge, RankUpToast } from '../ui/RankBadge';
 import { ExercisePicker } from './ExercisePicker';
 
 /** How many fitting to-try exercises the workout lists before pointing at the picker. */
 const TO_TRY_SHOWN = 3;
+/** A rank has to hold this long before it is celebrated, so typing "100" isn't three rank-ups. */
+const RANK_SETTLE = 600; // milliseconds
+
+/**
+ * Ranks as they stand with this workout's ticked sets counted, and the climb to
+ * celebrate when one of them rises while the page is open.
+ */
+function useLiveRanks(state: AppState): { ranks: Map<string, LiftRank>; rankUp: RankUp | null; dismiss: () => void } {
+  const ranks = useMemo(
+    () => liftRanks(state, { includeActive: true }),
+    [state.workouts, state.exercises, state.bodyWeights, state.settings.rankStandards],
+  );
+  // What has been seen so far; whatever stands when the page opens is not news.
+  const seen = useRef<LiftRank[] | null>(null);
+  const [rankUp, setRankUp] = useState<RankUp | null>(null);
+
+  useEffect(() => {
+    if (seen.current === null) {
+      seen.current = ranks;
+      return;
+    }
+    const timer = setTimeout(() => {
+      const [biggest] = rankUps(seen.current ?? [], ranks);
+      // Only ever upwards: unticking a set and ticking it again is not a second climb.
+      const known = new Map((seen.current ?? []).map((rank) => [rank.exercise.id, rank]));
+      for (const rank of ranks) {
+        const before = known.get(rank.exercise.id);
+        if (!before || rank.step > before.step) known.set(rank.exercise.id, rank);
+      }
+      seen.current = [...known.values()];
+      if (biggest) setRankUp(biggest);
+    }, RANK_SETTLE);
+    return () => clearTimeout(timer);
+  }, [ranks]);
+
+  const dismiss = useCallback(() => setRankUp(null), []);
+  return { ranks: useMemo(() => new Map(ranks.map((rank) => [rank.exercise.id, rank])), [ranks]), rankUp, dismiss };
+}
 
 /**
  * The in-progress workout: exercises, their sets, and the finish / discard flow.
@@ -30,6 +71,7 @@ export function ActiveWorkout({ state, workout }: { state: AppState; workout: Wo
   const exercises = useMemo(() => new Map(state.exercises.map((exercise) => [exercise.id, exercise])), [state.exercises]);
   // Saved-video exercises that suit what is being trained today, so they aren't forgotten again.
   const toTry = useMemo(() => toTryFor(state, workout), [state.exercises, workout.entries]);
+  const { ranks, rankUp, dismiss } = useLiveRanks(state);
   const edit = (change: (draft: Workout) => void) =>
     update((draft) => {
       const current = draft.workouts.find((candidate) => candidate.id === workout.id);
@@ -117,6 +159,7 @@ export function ActiveWorkout({ state, workout }: { state: AppState; workout: Wo
           entry={entry}
           exercise={entry.exerciseId ? exercises.get(entry.exerciseId) : undefined}
           previous={entry.exerciseId ? previousSets(state.workouts, entry.exerciseId) : []}
+          rank={entry.exerciseId ? ranks.get(entry.exerciseId) : undefined}
           isFirst={index === 0}
           isLast={index === workout.entries.length - 1}
           unit={state.settings.unit}
@@ -134,6 +177,8 @@ export function ActiveWorkout({ state, workout }: { state: AppState; workout: Wo
           <button className="row destructive" onClick={() => setQuestion('discard')}>Discard Workout</button>
         </div>
       </section>
+
+      {rankUp && <RankUpToast up={rankUp} onDone={dismiss} />}
 
       {showPicker && (
         <ExercisePicker
@@ -185,6 +230,8 @@ interface EntryProps {
   exercise: Exercise | undefined;
   /** The sets logged the last time this exercise was done. */
   previous: SetEntry[];
+  /** Where the lift stands, counting this workout's ticked sets. */
+  rank: LiftRank | undefined;
   isFirst: boolean;
   isLast: boolean;
   unit: WeightUnit;
@@ -192,7 +239,7 @@ interface EntryProps {
 }
 
 /** One exercise block inside the active workout. */
-function EntrySection({ workoutId, entry, exercise, previous, isFirst, isLast, unit, effort }: EntryProps) {
+function EntrySection({ workoutId, entry, exercise, previous, rank, isFirst, isLast, unit, effort }: EntryProps) {
   const labels = rowLabels(entry.sets);
   return (
     <section className="section" aria-label={entry.exerciseName}>
@@ -202,6 +249,7 @@ function EntrySection({ workoutId, entry, exercise, previous, isFirst, isLast, u
             <h2>{entry.exerciseName}</h2>
             {exercise?.notes && <p className="caption secondary prewrap">{exercise.notes}</p>}
           </div>
+          {rank && <RankBadge rank={rank} size={30} />}
           {webLink(exercise?.videoURL ?? null) && (
             <a className="icon-button" href={exercise!.videoURL!} target="_blank" rel="noreferrer" aria-label="Watch video">
               <SquarePlay size={22} aria-hidden />

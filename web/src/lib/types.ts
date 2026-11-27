@@ -24,6 +24,8 @@ export function equipmentTitle(equipment: Equipment): string {
 
 export type WeightUnit = 'kg' | 'lb';
 export type EffortScale = 'rpe' | 'rir';
+/** Whose strength standards the ranks are measured against. */
+export type RankStandards = 'men' | 'women';
 
 /** Services whose models can name the exercises in a video; the analyzer knows the same ids. */
 export const MODEL_PROVIDERS = ['anthropic', 'zai', 'openrouter', 'gemini'] as const;
@@ -154,6 +156,8 @@ export interface Settings {
   apiKeys: Record<ModelProvider, string>;
   /** Whether a workout is sent to each connected service as soon as it is finished. */
   autoExport: Record<ExportTarget, boolean>;
+  /** Which strength standards lifts are ranked against. Empty until chosen; nothing is ranked before that. */
+  rankStandards: RankStandards | '';
   /**
    * Names this browser's inbox at the analyzer, where links shared from other
    * apps wait (see inbox.ts). Made on first use; a backup never contains it,
@@ -183,6 +187,7 @@ export const defaultSettings = (): Settings => ({
   models: perProvider(() => ''),
   apiKeys: perProvider(() => ''),
   autoExport: { strava: false, garmin: false },
+  rankStandards: '',
   shareCode: '',
 });
 
@@ -210,6 +215,7 @@ export function normalizeSettings(raw: unknown): Settings {
     models: table(stored.models),
     apiKeys: table(stored.apiKeys),
     autoExport: { strava: flags(stored.autoExport).strava === true, garmin: flags(stored.autoExport).garmin === true },
+    rankStandards: stored.rankStandards === 'men' || stored.rankStandards === 'women' ? stored.rankStandards : '',
     shareCode: SHARE_CODE.test(text(stored.shareCode)) ? text(stored.shareCode) : '',
   };
 }

@@ -7,7 +7,7 @@ turn saved workout videos into exercises on a "to try" list.
 It is its own program. It shares no code and no data with the iPhone app — only the video analyzer in
 `../server`, which both can call.
 
-Two things it does that the iPhone app doesn't yet:
+Three things it does that the iPhone app doesn't yet:
 
 - **Up next** on the home screen: the routine you have gone longest without — what a rotation such as
   push / pull / legs calls for next — with a button that repeats your last session of it. Workouts count
@@ -17,6 +17,8 @@ Two things it does that the iPhone app doesn't yet:
 - **To try today** inside a workout: the exercises from your saved videos that fit what you are training
   — the workout already has an exercise for the same muscle, or at least a third of it is about the same
   part of the body (legs, push, pull). They are offered with one tap each, never added by themselves.
+
+- **Ranks**: every lift gets a rank, and so does the lifter — see [Ranks](#ranks).
 
 It can also send each finished workout to Strava and Garmin Connect; see
 [the analyzer's README](../server/README.md#sending-workouts-to-strava-and-garmin-connect).
@@ -103,10 +105,39 @@ Two other ways in:
 - Opening `<app address>/?url=<link>` saves the link — handy as a bookmark in the browser the app runs in.
 - On Android, an installed copy is listed in the share sheet (`share_target` in the manifest). Untested.
 
+## Ranks
+
+The **Ranks** tab gives every lift a rank, from Iron through Bronze, Silver, Gold, Platinum and Diamond
+to Legend, with three steps to each tier. A rank compares your best working set with what strong
+lifters of your body weight manage:
+
+- **Lifts with weight** are ranked by estimated one-rep max (weight × (1 + reps ÷ 30), reps counted up
+  to twelve) as a multiple of body weight. Legend begins at about 2× body weight on the bench press,
+  2.7× in the squat and 3× in the deadlift for men; Gold at 55% of that.
+- **Bodyweight exercises** — pull-ups, push-ups, dips and the like — are ranked by reps in one set,
+  and weight added on top counts.
+- **Your own exercises** are ranked when their name contains a library movement done with the same
+  equipment: "Paused Bench Press (Barbell)" is measured as a barbell bench press. Holds, carries,
+  cardio and anything the library has no yardstick for stay unranked.
+
+It needs two things, both on the Ranks page: which standards to measure against (men's or women's;
+**Off** hides ranks everywhere) and a body weight — the latest weigh-in under Body is used, so the same
+lift counts for more at a lower body weight. The overall rank is the average of your best push, pull
+and leg lift; a part of the body with nothing ranked counts as zero.
+
+In a running workout each ranked lift shows its emblem, and a set that lifts it a step is celebrated
+on the spot. The emblems are drawn in code (`src/ui/RankBadge.tsx`); the animation is switched off
+for anyone who has asked their device to reduce motion.
+
+The yardsticks live in `src/lib/standards.ts`, one line per exercise. The big barbell lifts and
+pull-ups follow the bodyweight-ratio tables in common use; the rest — dumbbells, cables, machines —
+are estimates scaled from those, and machines differ from gym to gym. Treat it as a game that makes
+progress visible, and change a line if a rank feels off.
+
 ## Tests
 
 ```sh
-npm test                               # logic: workouts, Strong import, videos, backup, model choice (Vitest)
+npm test                               # logic: workouts, Strong import, videos, backup, model choice, ranks (Vitest)
 npx playwright install chromium webkit # once
 npm run test:e2e                       # the built app in desktop Chromium and iPhone-sized WebKit
 uv run ../server/test_analyzer.py      # the analyzer's side
@@ -117,12 +148,13 @@ uv run ../server/test_inbox.py         # links shared from other apps
 The browser tests stand in for the analyzer themselves, so they need neither the Mac service nor an API
 key. They cover logging, finishing and repeating a workout, custom exercises, the to-try list, saved
 videos with and without the analyzer, videos shared from other apps, choosing the model and key,
-Strong import, body weight, units,
-backup and restore, two tabs, and opening without a connection (Chromium only).
+ranks and the rank-up celebration, Strong import, body weight, units, backup and restore, two tabs,
+and opening without a connection (Chromium only).
 
 ## Code
 
 - `src/lib` — data and logic, no interface: `types.ts`, `workouts.ts`, `exercises.ts`, `strong.ts`,
-  `videos.ts`, `backup.ts`; `store.ts` holds the state and `db.ts` writes it to IndexedDB.
+  `videos.ts`, `backup.ts`, `ranks.ts` with its table in `standards.ts`; `store.ts` holds the state
+  and `db.ts` writes it to IndexedDB.
 - `src/screens` — one file per page; `src/ui` — shared pieces (page frame, sheets, menus, chart).
 - `sw.template.js` — the service worker; `vite.config.ts` fills in the list of built files.

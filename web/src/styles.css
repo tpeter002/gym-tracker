@@ -129,7 +129,7 @@ svg { flex: none; }
   .nav .nav-gap { margin-top: 16px; }
 }
 
-/* Page header: big title on the four tabs, a compact bar with Back elsewhere. */
+/* Page header: big title on the tabs, a compact bar with Back elsewhere. */
 .page-header {
   position: sticky; top: 0; z-index: 10;
   display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
@@ -514,4 +514,88 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* Ranks. Each tier has a colour of its own for bars and glows; the emblems carry theirs inside (ui/RankBadge.tsx). */
+[data-tier='iron'] { --tier: #7b8591; }
+[data-tier='bronze'] { --tier: #c27a3f; }
+[data-tier='silver'] { --tier: #9aa5b0; }
+[data-tier='gold'] { --tier: #e0a51a; }
+[data-tier='platinum'] { --tier: #4fb3a5; }
+[data-tier='diamond'] { --tier: #3d9ef0; }
+[data-tier='legend'] { --tier: #c44fd0; }
+
+.lead { margin-top: 12px; padding: 0 4px; color: var(--text-2); font-size: 15px; }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.title-line.strong { font-size: 20px; font-weight: 700; }
+
+.rank-badge { display: block; flex: none; overflow: visible; color: var(--text-2); }
+.rank-pip { opacity: 0.4; }
+.rank-pip.on { opacity: 1; }
+
+.rank-bar { display: block; height: 6px; margin: 6px 0 2px; overflow: hidden; border-radius: 3px; background: var(--fill-2); }
+.rank-bar > span {
+  display: block; height: 100%; min-width: 6px; border-radius: 3px;
+  background: var(--tier, var(--accent));
+  transform-origin: left; animation: rank-bar-in 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.rank-hero { display: flex; align-items: center; gap: 16px; padding: 18px 16px 14px; }
+.rank-hero strong { display: block; font-size: 30px; font-weight: 700; letter-spacing: -0.4px; line-height: 1.15; }
+.rank-hero .rank-bar { height: 8px; border-radius: 4px; margin: 8px 0 6px; }
+.rank-region { flex: none; width: 44px; color: var(--text-2); font-size: 13px; font-weight: 600; text-transform: uppercase; }
+
+.rank-ladder { display: grid; grid-template-columns: repeat(7, 1fr); padding: 14px 6px 12px; }
+.rank-ladder span { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--text-2); font-size: 9.5px; font-weight: 600; letter-spacing: -0.1px; }
+
+.entry-header .rank-badge { margin: 0 4px; }
+
+/* The moment a lift climbs a step. */
+.rank-up {
+  position: fixed; z-index: 40; top: calc(env(safe-area-inset-top) + 10px); left: 50%;
+  display: flex; align-items: center; gap: 14px;
+  width: min(360px, calc(100vw - 24px)); padding: 12px 18px 12px 12px;
+  border-radius: 22px; background: var(--surface); color: var(--text); text-align: left;
+  box-shadow: var(--shadow), 0 0 0 2px var(--tier);
+  cursor: pointer;
+  translate: -50% 0;
+  animation: rank-up-in 0.5s cubic-bezier(0.2, 1.3, 0.3, 1) both, rank-up-out 0.35s ease-in 4.1s both;
+}
+@media (min-width: 900px) { .rank-up { left: calc(50% + 116px); } }
+.rank-up-emblem { position: relative; flex: none; width: 72px; height: 72px; }
+.rank-up-emblem i {
+  position: absolute; left: 50%; top: 45%; width: 10px; height: 10px; margin: -5px;
+  background: var(--tier); opacity: 0;
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+  animation: rank-spark 0.9s ease-out both;
+}
+.rank-up-text { display: flex; flex-direction: column; min-width: 0; }
+.rank-up-kicker { color: var(--tier); font-size: 12px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; }
+.rank-up-text strong { font-size: 24px; font-weight: 700; letter-spacing: -0.3px; line-height: 1.15; }
+.rank-up-lift { overflow: hidden; color: var(--text-2); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+
+.rank-badge.celebrate { transform-origin: 50% 50%; animation: rank-pop 0.7s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+.rank-badge.celebrate .rank-shine { animation: rank-shine 1.1s ease-in-out 0.5s both; }
+
+@keyframes rank-bar-in { from { transform: scaleX(0); } }
+@keyframes rank-up-in { from { transform: translateY(-140%); opacity: 0; } }
+@keyframes rank-up-out { to { transform: translateY(-140%); opacity: 0; } }
+@keyframes rank-pop {
+  0% { transform: scale(0.2) rotate(-30deg); opacity: 0; }
+  55% { transform: scale(1.18) rotate(6deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+@keyframes rank-shine {
+  0% { transform: translateX(0) skewX(-20deg); opacity: 0; }
+  15% { opacity: 0.7; }
+  100% { transform: translateX(120px) skewX(-20deg); opacity: 0; }
+}
+@keyframes rank-spark {
+  0% { transform: translate(0, 0) scale(0.2) rotate(0); opacity: 1; }
+  70% { opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) scale(1.1) rotate(90deg); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rank-up, .rank-up-emblem i, .rank-badge.celebrate, .rank-badge.celebrate .rank-shine, .rank-bar > span { animation: none; transition: none; }
 }

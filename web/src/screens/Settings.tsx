@@ -15,6 +15,7 @@ import { fmtCount, fmtDate, fmtDateTime } from '../lib/units';
 import { Segmented, Spinner, Switch } from '../ui/controls';
 import { LinkRow, Page, Section, ValueRow } from '../ui/layout';
 import { ConfirmDialog } from '../ui/overlays';
+import { chooseStandards, STANDARDS_OPTIONS } from './Ranks';
 
 const UNITS = [{ value: 'kg', label: 'kg' }, { value: 'lb', label: 'lb' }] as const;
 const SCALES = [{ value: 'rpe', label: 'RPE' }, { value: 'rir', label: 'RIR' }] as const;
@@ -327,6 +328,13 @@ export function Settings({ state }: { state: AppState }) {
         <div className="row">
           Effort scale
           <Segmented label="Effort scale" value={settings.effort} options={SCALES} onChange={(effort) => changeSettings({ effort })} />
+        </div>
+      </Section>
+
+      <Section title="Ranks" footer="Ranks compare your best set of each lift with strength standards for your body weight. Off hides them everywhere.">
+        <div className="row">
+          Standards
+          <Segmented label="Strength standards" value={settings.rankStandards} options={STANDARDS_OPTIONS} onChange={chooseStandards} />
         </div>
       </Section>
 

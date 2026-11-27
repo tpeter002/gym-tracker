@@ -1,6 +1,7 @@
 import { CirclePlus, Ellipsis, Plus, SquarePlay } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { deleteExercise, searchExercises } from '../lib/exercises';
+import { describeLift, liftRanks, rankSetup, rankTitle, standardFor } from '../lib/ranks';
 import { goBack } from '../lib/router';
 import { update } from '../lib/store';
 import { equipmentTitle, muscleTitle } from '../lib/types';
@@ -10,9 +11,10 @@ import { webLink } from '../lib/videos';
 import { estimatedOneRepMax, sessionsFor } from '../lib/workouts';
 import { LineChart } from '../ui/Chart';
 import { MuscleFilterBar, SearchField } from '../ui/controls';
-import { LinkRow, Page, Section, ValueRow } from '../ui/layout';
+import { Link, LinkRow, Page, Section, ValueRow } from '../ui/layout';
 import { ConfirmDialog, Menu } from '../ui/overlays';
 import { ExerciseLabel } from '../ui/parts';
+import { RankBadge, RankProgress } from '../ui/RankBadge';
 import { ExerciseEditor } from './ExerciseEditor';
 import { setText } from './History';
 
@@ -23,6 +25,10 @@ export function Exercises({ state }: { state: AppState }) {
   const [showEditor, setShowEditor] = useState(false);
   const trimmed = query.trim();
   const results = useMemo(() => searchExercises(state.exercises, query, muscle), [state.exercises, query, muscle]);
+  const ranks = useMemo(
+    () => new Map(liftRanks(state).map((rank) => [rank.exercise.id, rank])),
+    [state.workouts, state.exercises, state.bodyWeights, state.settings.rankStandards],
+  );
 
   return (
     <Page
@@ -42,6 +48,7 @@ export function Exercises({ state }: { state: AppState }) {
           {results.map((exercise) => (
             <LinkRow key={exercise.id} to={`/exercises/${exercise.id}`}>
               <ExerciseLabel exercise={exercise} />
+              {ranks.has(exercise.id) && <RankBadge rank={ranks.get(exercise.id)!} size={30} />}
             </LinkRow>
           ))}
           {/* "Not found" is the moment you want to add your own. */}
@@ -87,6 +94,12 @@ export function ExerciseDetail({ state, exercise }: { state: AppState; exercise:
     .filter((point): point is { time: number; kg: number } => point.kg !== null)
     .reverse();
   const video = webLink(exercise.videoURL);
+  const rank = useMemo(
+    () => liftRanks(state).find((candidate) => candidate.exercise.id === exercise.id),
+    [state.workouts, state.exercises, state.bodyWeights, state.settings.rankStandards, exercise.id],
+  );
+  const rankWords = rank && describeLift(rank, unit);
+  const canBeRanked = standardFor(exercise) !== null;
 
   return (
     <Page
@@ -132,6 +145,27 @@ export function ExerciseDetail({ state, exercise }: { state: AppState; exercise:
       {exercise.notes && (
         <Section title="Notes">
           <div className="row prewrap">{exercise.notes}</div>
+        </Section>
+      )}
+
+      {rank && rankWords && (
+        <Section title="Rank">
+          <Link to="/ranks" className="row" label={`Rank: ${rankTitle(rank)}`}>
+            <RankBadge rank={rank} size={56} decorative />
+            <span className="grow" data-tier={rank.tier}>
+              <span className="title-line strong">{rankTitle(rank)}</span>
+              <span className="sub">{rankWords.best}</span>
+              <RankProgress rank={rank} />
+              {rankWords.next && <span className="sub">{rankWords.next}</span>}
+            </span>
+          </Link>
+        </Section>
+      )}
+      {!rank && canBeRanked && workingSets.length > 0 && (
+        <Section title="Rank">
+          <LinkRow to="/ranks">
+            {rankSetup(state) ? 'Not ranked yet — it takes a set with weight' : 'Set up ranks to see where this lift stands'}
+          </LinkRow>
         </Section>
       )}
 

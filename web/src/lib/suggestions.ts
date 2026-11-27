@@ -76,7 +76,7 @@ export function nextWorkout(state: AppState, now = Date.now()): Routine | null {
 
 // Leg day, push day, pull day: a to-try exercise fits a workout that is
 // largely about the same part of the body, even if not the very same muscle.
-const REGIONS: Partial<Record<MuscleGroup, 'legs' | 'push' | 'pull'>> = {
+export const REGIONS: Partial<Record<MuscleGroup, 'legs' | 'push' | 'pull'>> = {
   quads: 'legs', hamstrings: 'legs', glutes: 'legs', calves: 'legs',
   chest: 'push', shoulders: 'push', triceps: 'push',
   back: 'pull', biceps: 'pull', forearms: 'pull',

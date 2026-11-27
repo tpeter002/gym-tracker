@@ -1,4 +1,4 @@
-import { Dumbbell, History as HistoryIcon, List, Scale, Settings as SettingsIcon, SquarePlay } from 'lucide-react';
+import { Dumbbell, History as HistoryIcon, List, Scale, Settings as SettingsIcon, SquarePlay, Trophy } from 'lucide-react';
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { beginWorkout, startConflict } from './lib/actions';
@@ -13,6 +13,7 @@ import { Body } from './screens/Body';
 import { ExerciseDetail, Exercises } from './screens/Exercises';
 import { History, WorkoutDetail } from './screens/History';
 import { Home, ResumeCard } from './screens/Home';
+import { Ranks } from './screens/Ranks';
 import { Settings, StrongImportPage } from './screens/Settings';
 import { VideoDetail, Videos } from './screens/Videos';
 import { Link, Redirect } from './ui/layout';
@@ -22,6 +23,7 @@ const TABS = [
   { to: '/', label: 'Workout', icon: Dumbbell, sections: ['', 'workout'] },
   { to: '/history', label: 'History', icon: HistoryIcon, sections: ['history'] },
   { to: '/exercises', label: 'Exercises', icon: List, sections: ['exercises'] },
+  { to: '/ranks', label: 'Ranks', icon: Trophy, sections: ['ranks'] },
   { to: '/body', label: 'Body', icon: Scale, sections: ['body'] },
   // On a phone these two are reached from the Workout tab instead.
   { to: '/videos', label: 'Saved Videos', icon: SquarePlay, sections: ['videos'], wideOnly: true },
@@ -47,6 +49,8 @@ function screenFor(route: string[], state: AppState): ReactNode {
       const exercise = state.exercises.find((candidate) => candidate.id === id);
       return exercise ? <ExerciseDetail state={state} exercise={exercise} /> : <Redirect to="/exercises" />;
     }
+    case 'ranks':
+      return <Ranks state={state} />;
     case 'body':
       return <Body state={state} />;
     case 'videos': {

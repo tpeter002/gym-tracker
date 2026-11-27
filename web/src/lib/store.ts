@@ -1,5 +1,5 @@
 import { produce } from 'immer';
-import { loadState, openDatabase, saveChanges } from './db';
+import { DB_NAME, loadState, openDatabase, saveChanges } from './db';
 import { seedLibrary } from './exercises';
 import { signal, useSignal } from './signal';
 import { emptyState } from './types';
@@ -21,6 +21,9 @@ const appState = signal<AppState>(emptyState());
 export const storageStatus = signal<'ok' | 'unavailable' | 'unreadable' | 'failed'>('ok');
 
 let database: IDBDatabase | null = null;
+/** Which database that is: the one name without an account, one per account with. */
+let databaseName = DB_NAME;
+let databaseSyncs = false;
 /**
  * What the database is known to hold: what was read from it, then each state
  * written in full. Every write goes from here to the current state, so a write
@@ -31,6 +34,9 @@ let persisted: AppState = appState.get();
 let saving: Promise<void> = Promise.resolve();
 let otherTabs: BroadcastChannel | null = null;
 let askedToPersist = false;
+/** The database was let go of on purpose (signing out); it is not to be opened again. */
+let closed = false;
+const changeListeners = new Set<(before: AppState, after: AppState) => void>();
 
 export const getState = () => appState.get();
 export const useAppState = () => useSignal(appState);
@@ -57,10 +63,18 @@ export function replaceState(next: AppState): void {
   commit(next);
 }
 
+/** Calls `listener` after every change, with the state before and after it. Returns how to stop. */
+export function onChange(listener: (before: AppState, after: AppState) => void): () => void {
+  changeListeners.add(listener);
+  return () => changeListeners.delete(listener);
+}
+
 function commit(after: AppState): void {
-  if (after === appState.get()) return;
+  const before = appState.get();
+  if (after === before) return;
   appState.set(after);
   save();
+  changeListeners.forEach((listener) => listener(before, after));
   // Ask the browser not to evict the data once there is something worth keeping.
   if (!askedToPersist && after.workouts.length > 0) {
     askedToPersist = true;
@@ -73,13 +87,21 @@ function save(): void {
   saving = saving.then(async () => {
     const target = appState.get();
     if (target === persisted) return; // an earlier write in the queue already took this state along
+    if (!database) return; // let go of since this write was queued
     try {
       await write(target);
     } catch {
+      // Let go of on purpose: opening it again would bring back a database that signing out is deleting.
+      if (closed) return;
       // A phone may close the connection of a page it put to sleep. Opening it
       // again is worth one try before telling the person nothing was saved.
       try {
-        database = await openDatabase();
+        const reopened = await openDatabase(databaseName, databaseSyncs);
+        if (closed) {
+          reopened.close();
+          return;
+        }
+        database = reopened;
         await write(target);
       } catch {
         storageStatus.set('failed');
@@ -99,6 +121,28 @@ async function write(target: AppState): Promise<void> {
 /** Resolves once every change made so far has been written, or has failed to be. */
 export const whenSaved = (): Promise<void> => saving;
 
+/** The database in use, for what is kept beside the state (an account's sync memory); null when there is none. */
+export const currentDatabase = (): IDBDatabase | null => database;
+
+/**
+ * What the database holds once every change made so far is written; null when
+ * that failed or there is no database. Read from the disk rather than taken
+ * from memory, so it includes what other tabs wrote.
+ */
+export async function readSaved(): Promise<AppState | null> {
+  let waitedFor: Promise<void> | null = null;
+  while (waitedFor !== saving) {
+    waitedFor = saving;
+    await waitedFor; // a change made while waiting queues another write
+  }
+  if (!database || storageStatus.get() !== 'ok') return null;
+  try {
+    return await loadState(database);
+  } catch {
+    return null;
+  }
+}
+
 /** Takes over what another tab saved. */
 async function reload(): Promise<void> {
   if (!database) return;
@@ -115,9 +159,20 @@ async function reload(): Promise<void> {
   }
 }
 
-export async function initStore(): Promise<void> {
+export interface StoreOptions {
+  /** The database to use; an account's own (see cloud/session.ts). */
+  name?: string;
+  /** Whether that database also keeps an account's sync memory. */
+  syncs?: boolean;
+  /** false: the built-in exercises are not added yet — an account's own come from the cloud first. */
+  seed?: boolean;
+}
+
+export async function initStore({ name = DB_NAME, syncs = false, seed = true }: StoreOptions = {}): Promise<void> {
+  databaseName = name;
+  databaseSyncs = syncs;
   try {
-    database = await openDatabase();
+    database = await openDatabase(databaseName, databaseSyncs);
   } catch {
     database = null;
     storageStatus.set('unavailable');
@@ -133,11 +188,20 @@ export async function initStore(): Promise<void> {
       storageStatus.set('unreadable');
     }
   }
-  update(seedLibrary);
+  if (seed) update(seedLibrary);
 
   if (database && 'BroadcastChannel' in window) {
     // The same site open in two tabs: pick up what the other one saved.
-    otherTabs = new BroadcastChannel('gym-tracker');
+    otherTabs = new BroadcastChannel(databaseName);
     otherTabs.onmessage = () => void reload().catch(() => undefined);
   }
+}
+
+/** Lets go of the database, so it can be deleted (signing out). Nothing is saved after this. */
+export function closeStore(): void {
+  closed = true;
+  otherTabs?.close();
+  otherTabs = null;
+  database?.close();
+  database = null;
 }

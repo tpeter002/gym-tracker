@@ -1,0 +1,71 @@
+rules_version = '2';
+
+// Who may read and write what. Everything not allowed here is refused, and
+// nothing here lets one person reach another person's records.
+//
+//   allowed/{email}             the guest list: one document per invited address,
+//                               named by the address in lower case. Kept by the
+//                               owner in the Firebase console; the app can only
+//                               ask whether its own address is on it.
+//   users/{uid}/records/{key}   one document per workout, exercise, weigh-in,
+//                               saved video, and one each for the settings and
+//                               the library version. Only that person's: to
+//                               write takes an invitation, to read or delete
+//                               what is one's own takes only the login.
+//
+// The tests are in tests/rules.test.js; `npm test` runs them against the emulator.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Signed in, with an email address that was proved to be theirs.
+    function verified() {
+      return request.auth != null
+        && request.auth.token.email is string
+        && request.auth.token.email_verified == true;
+    }
+
+    // …and that address is on the guest list.
+    function invited() {
+      return verified()
+        && exists(/databases/$(database)/documents/allowed/$(request.auth.token.email));
+    }
+
+    function owns(uid) {
+      return invited() && request.auth.uid == uid;
+    }
+
+    // A record as the app writes it (web/src/lib/cloud/firebase.ts):
+    //   k  the kind of record
+    //   p  the record itself, as text. Its inside is the app's business — which
+    //      is what lets it become ciphertext later without a change here.
+    //   d  true once the record has been deleted (a tombstone, so the deletion
+    //      reaches the person's other devices)
+    //   t  when the server took the write; devices ask for what changed since
+    //   v  the format of p
+    function validRecord(key) {
+      let data = request.resource.data;
+      return data.keys().hasOnly(['k', 'p', 'd', 't', 'v'])
+        && data.keys().hasAll(['k', 'p', 'd', 't', 'v'])
+        && data.k in ['exercises', 'workouts', 'bodyWeights', 'videos', 'settings', 'meta']
+        && key.matches('^' + data.k + '_[A-Za-z0-9_=-]{1,100}$')
+        && data.p is string
+        && data.p.size() <= 200000
+        && data.d is bool
+        && data.t == request.time
+        && data.v == 1;
+    }
+
+    match /users/{uid}/records/{key} {
+      // Without the guest list: a person who has been taken off it can still
+      // fetch what is theirs and delete it — and so can delete their account.
+      allow read, delete: if verified() && request.auth.uid == uid;
+      allow create, update: if owns(uid) && validRecord(key);
+    }
+
+    match /allowed/{email} {
+      // "Am I invited?" — the one question the app may ask about the list.
+      allow get: if verified() && request.auth.token.email == email;
+    }
+  }
+}

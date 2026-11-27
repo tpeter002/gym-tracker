@@ -456,6 +456,37 @@ select.cell.unset { color: var(--text-2); }
 .steps li + li { margin-top: 6px; }
 .steps b { color: var(--text); font-weight: 600; }
 
+/* Signing in, in a copy that has accounts (screens/cloud/Gate.tsx). */
+.auth {
+  display: flex; flex-direction: column; gap: 14px;
+  max-width: 420px; margin: 0 auto;
+  padding: calc(env(safe-area-inset-top) + 56px) 16px calc(env(safe-area-inset-bottom) + 32px);
+}
+.auth h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.3px; }
+.auth > p { font-size: 15px; }
+.auth > p b { color: var(--text); font-weight: 600; }
+.auth-app { color: var(--accent); font-size: 15px; font-weight: 600; }
+.auth-label { flex: none; width: 84px; }
+.auth-note { margin-top: 10px; padding: 0 16px; font-size: 13px; }
+p.auth-note:not(.error-text) { color: var(--text-2); }
+.auth-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 12px; }
+.auth-loading { display: flex; align-items: center; gap: 10px; min-height: 44px; color: var(--text-2); }
+
+.data-note { margin-top: 12px; padding: 0 16px; color: var(--text-2); font-size: 13px; }
+.data-note summary { min-height: 44px; display: flex; align-items: center; color: var(--accent); font-size: 15px; cursor: pointer; }
+.data-note ul { margin: 0 0 8px; padding-left: 18px; }
+.data-note li + li { margin-top: 8px; }
+
+/* The question about removals that syncing holds back (screens/settings/Account.tsx). */
+.row.held { flex-direction: column; align-items: stretch; gap: 10px; font-size: 15px; }
+.held-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.held-actions .btn { flex: 1; min-width: 150px; padding: 0 12px; font-size: 15px; }
+.btn.destructive { color: var(--red); }
+.btn-primary.danger { background: var(--red); }
+@media (prefers-color-scheme: dark) {
+  .btn-primary.danger { color: #000000; }
+}
+
 /* Body weight */
 .hero { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 16px 16px 4px; }
 .hero strong { display: block; font-size: 34px; font-weight: 700; letter-spacing: -0.4px; }

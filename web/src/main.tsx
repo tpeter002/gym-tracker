@@ -2,6 +2,8 @@ import { Component, StrictMode } from 'react';
 import type { ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { cloudConfig } from './lib/cloud/config';
+import { startSession } from './lib/cloud/session';
 import { getState, initStore } from './lib/store';
 import { downloadBackup } from './ui/downloadBackup';
 import './styles.css';
@@ -40,17 +42,34 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
 
 const root = createRoot(document.getElementById('root')!);
 
-void initStore()
-  .then(() => {
+async function start(): Promise<void> {
+  // A copy with accounts (see cloud/README.md) opens a person's own database
+  // once they are signed in; the Gate stands in front of the app until then.
+  // The condition is spelled out so that a build without accounts leaves the
+  // whole of it out, Firebase's code included.
+  if (import.meta.env.VITE_FIREBASE_PROJECT_ID && cloudConfig) {
+    const [{ connect }, { Gate }] = await Promise.all([import('./lib/cloud/firebase'), import('./screens/cloud/Gate')]);
+    startSession(connect(cloudConfig));
     root.render(
       <StrictMode>
         <ErrorBoundary>
-          <App />
+          <Gate><App /></Gate>
         </ErrorBoundary>
       </StrictMode>,
     );
-  })
-  .catch(() => root.render(<Crashed />));
+    return;
+  }
+  await initStore();
+  root.render(
+    <StrictMode>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </StrictMode>,
+  );
+}
+
+void start().catch(() => root.render(<Crashed />));
 
 // Keeps a copy of the app in the browser so it opens without a connection.
 // Browsers only allow this on https and on localhost.

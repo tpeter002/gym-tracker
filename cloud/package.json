@@ -1,0 +1,22 @@
+{
+  "name": "gym-tracker-cloud",
+  "private": true,
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "emulators": "firebase emulators:start --project demo-gym-tracker",
+    "test": "firebase emulators:exec --project demo-gym-tracker --only firestore \"vitest run\"",
+    "test:e2e": "node scripts/e2e.mjs",
+    "deploy": "npm --prefix ../web run build:cloud && firebase deploy --only firestore,hosting"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "firebase": "^12.19.0",
+    "firebase-tools": "^14.27.0",
+    "vitest": "^5.1.2"
+  }
+}

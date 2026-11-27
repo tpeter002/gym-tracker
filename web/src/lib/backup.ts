@@ -21,8 +21,8 @@ export function exportBackup(state: AppState, now = Date.now()): string {
   return JSON.stringify({ app: BACKUP_APP, version: BACKUP_VERSION, exportedAt: now, data });
 }
 
-/** The settings that never travel in a backup. */
-const ownToThisBrowser = (settings: Settings) => ({ apiKeys: settings.apiKeys, shareCode: settings.shareCode });
+/** The settings that never leave the browser they were made in: not in a backup, not to an account. */
+export const ownToThisBrowser = (settings: Settings) => ({ apiKeys: settings.apiKeys, shareCode: settings.shareCode });
 
 /** What the app holds after restoring `backup` over `current`: everything from the file, plus this browser's own API keys and inbox. */
 export function restoreBackup(current: AppState, backup: Backup): AppState {
@@ -165,6 +165,18 @@ const readVideo = (raw: Raw): SavedVideo => ({
   analyzedBy: strOrNull(raw.analyzedBy),
   suggestions: list(raw.suggestions ?? [], 'video suggestions', readSuggestion),
 });
+
+/**
+ * Reads one record of a kind from anything that isn't trusted to be well-formed
+ * — a file, or what an account holds — checking it on the way in. Throws a
+ * BackupError when it can't be one.
+ */
+export const RECORD_READERS = {
+  exercises: readExercise,
+  workouts: readWorkout,
+  bodyWeights: readBodyWeight,
+  videos: readVideo,
+} as const;
 
 /** Reads a file made by `exportBackup`, checking every record on the way in. */
 export function parseBackup(text: string): Backup {

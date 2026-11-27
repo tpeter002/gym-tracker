@@ -4,6 +4,8 @@ import { changeSettings } from '../../lib/actions';
 import { analyzerOnline, isBlockedAsMixedContent, isReachable } from '../../lib/analyzer';
 import { BackupError, parseBackup, restoreBackup } from '../../lib/backup';
 import type { Backup } from '../../lib/backup';
+import { cloudConfig } from '../../lib/cloud/config';
+import { expectRemovals } from '../../lib/cloud/session';
 import { STANDARDS_OPTIONS } from '../../lib/ranks';
 import { fmtRest, REST_CHOICES } from '../../lib/rest';
 import { getState, replaceState } from '../../lib/store';
@@ -13,6 +15,7 @@ import { Segmented, Spinner, Switch } from '../../ui/controls';
 import { downloadBackup } from '../../ui/downloadBackup';
 import { LinkRow, Page, Section } from '../../ui/layout';
 import { ConfirmDialog } from '../../ui/overlays';
+import { Account } from './Account';
 import { Connections } from './Connections';
 import { ShareFromOtherApps } from './ShareFromOtherApps';
 import { readText, UNITS } from './shared';
@@ -54,6 +57,8 @@ export function Settings({ state }: { state: AppState }) {
 
   return (
     <Page title="Settings" back="/">
+      {cloudConfig && <Account />}
+
       <Section
         title="Logging"
         footer="RPE rates how hard a set was out of 10; RIR counts the reps you had left. They're two views of the same thing (RIR = 10 − RPE), so you can switch any time."
@@ -101,7 +106,9 @@ export function Settings({ state }: { state: AppState }) {
         title="Data"
         footer={backupNote
           ? <span className={backupNote.isError ? 'error-text' : undefined}>{backupNote.text}</span>
-          : "Everything is kept in this browser, on this device. Clearing the browser's website data deletes it, so download a backup now and then — it is also how you move to another browser or device."}
+          : cloudConfig
+            ? 'A backup is everything of yours in one file, to keep or to take elsewhere. Restoring one replaces what is in your account, on all your devices.'
+            : "Everything is kept in this browser, on this device. Clearing the browser's website data deletes it, so download a backup now and then — it is also how you move to another browser or device."}
       >
         <LinkRow to="/settings/import">
           <FolderInput className="row-icon" size={22} aria-hidden />
@@ -132,7 +139,9 @@ export function Settings({ state }: { state: AppState }) {
         title="Video analyzer"
         footer={blocked
           ? "This page is loaded over https, so the browser won't let it call an http address. Open the app from the analyzer's own address instead."
-          : "The analyzer from this project's server folder downloads a saved video and names the exercises in it. Leave the address empty when you opened this app from the analyzer itself; otherwise enter where it runs."}
+          : cloudConfig
+            ? "The analyzer from this project's server folder downloads a saved video and names the exercises in it. It runs on a computer of your own; enter its https address here. Without one, everything but identifying videos works."
+            : "The analyzer from this project's server folder downloads a saved video and names the exercises in it. Leave the address empty when you opened this app from the analyzer itself; otherwise enter where it runs."}
       >
         <div className="row">
           <input
@@ -140,7 +149,7 @@ export function Settings({ state }: { state: AppState }) {
             type="url"
             inputMode="url"
             aria-label="Analyzer address"
-            placeholder="This site"
+            placeholder={cloudConfig ? 'https://…' : 'This site'}
             autoComplete="off"
             autoCapitalize="none"
             spellCheck={false}
@@ -168,11 +177,13 @@ export function Settings({ state }: { state: AppState }) {
       {backup && (
         <ConfirmDialog
           title="Replace everything with this backup?"
-          message={`The backup${backup.exportedAt ? ` from ${fmtDateTime(backup.exportedAt)}` : ''} has ${fmtCount(backup.state.workouts.length, 'workout')}. What is in this browser now will be overwritten.`}
+          message={`The backup${backup.exportedAt ? ` from ${fmtDateTime(backup.exportedAt)}` : ''} has ${fmtCount(backup.state.workouts.length, 'workout')}. What is in ${cloudConfig ? 'your account' : 'this browser'} now will be overwritten.`}
           actions={[{
             label: 'Replace',
             destructive: true,
             run: () => {
+              // Said in the question above: the account is replaced too, so syncing doesn't ask again.
+              if (cloudConfig) expectRemovals();
               replaceState(restoreBackup(state, backup));
               setBackupNote({ text: `Restored ${fmtCount(backup.state.workouts.length, 'workout')} from the backup.`, isError: false });
             },

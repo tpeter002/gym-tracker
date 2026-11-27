@@ -63,6 +63,18 @@ left out of backups and goes only to your analyzer, which uses it for that one r
 - Clearing the browser's website data deletes the log. Safari can also remove a site's data when it
   hasn't been opened for seven days; a site added to the Home Screen is not affected.
 
+### With accounts
+
+The same app can be built so that people sign in and their log follows them from device to device,
+hosted for a handful of people on Firebase's free plan. That takes a Firebase project and a few
+settings; [`../cloud/README.md`](../cloud/README.md) has the steps, what protects the data, and what
+people are told about where it is kept. In short: the browser's storage stays the copy the app works
+from (so it still opens without a connection), each account's records are also kept in a database only
+that person can read through the app, a workout in progress stays on its device until it is finished,
+and signing out removes the account's data from the device.
+
+A build without those settings — `npm run build`, as above — contains none of it.
+
 ## On a phone
 
 - **At home:** the address above works as it is, including video identification. The page comes from the
@@ -209,7 +221,8 @@ npm run test:e2e                       # the built app in desktop Chromium and i
 
 `tests/unit` and `tests/e2e` have one file per feature. The browser tests stand in for the analyzer
 themselves, so they need neither the Mac service nor an API key; opening without a connection is
-tested in Chromium only. `tests/fixtures/backup-v1.json` is a backup in the format people have on
+tested in Chromium only. `tests/cloud` is the version with accounts; it runs against Firebase's
+emulators, started from [`../cloud`](../cloud/README.md#tests) with `npm run test:e2e` there. `tests/fixtures/backup-v1.json` is a backup in the format people have on
 disk: a change that stops it restoring is a change that breaks their files. The analyzer's own tests are described in
 [its README](../server/README.md#tests).
 
@@ -217,5 +230,8 @@ disk: a change that stops it restoring is a change that breaks their files. The 
 
 - `src/lib` — data and logic, no interface, one module per subject; `types.ts` describes what is
   stored, `store.ts` holds the state and `db.ts` writes it to IndexedDB.
+- `src/lib/cloud` — accounts: `records.ts` (what of the state belongs in an account), `sync.ts` (keeping
+  a device and an account in step), `session.ts` (who is signed in, and when to sync), `firebase.ts`
+  (the only file that knows the service is Firebase). `src/screens/cloud` is the sign-in.
 - `src/screens` — one file per page; `src/ui` — shared pieces (page frame, sheets, menus, chart, emblems).
 - `sw.template.js` — the service worker; `vite.config.ts` fills in the list of built files.

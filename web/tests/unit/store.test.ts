@@ -5,6 +5,7 @@ import type { AppState } from '../../src/lib/types';
 // what gets written, in what order, and what happens when a write is refused.
 
 const db = vi.hoisted(() => ({
+  DB_NAME: 'gym-tracker',
   openDatabase: vi.fn(),
   loadState: vi.fn(),
   saveChanges: vi.fn(),
@@ -144,5 +145,88 @@ describe('a change', () => {
     expect(update((draft) => draft.workouts.length)).toBe(1);
     expect(update(() => null)).toBeNull();
     expect(getState()).toBe(before);
+  });
+});
+
+describe('for an account', () => {
+  it("opens the account's own database, with room for its sync memory, and leaves the built-in list for later", async () => {
+    const { initStore, getState, currentDatabase } = await freshStore();
+    db.loadState.mockImplementation(async () => (await import('../../src/lib/types')).emptyState());
+    await initStore({ name: 'gym-tracker-abc', syncs: true, seed: false });
+    expect(db.openDatabase).toHaveBeenCalledWith('gym-tracker-abc', true);
+    expect(getState().exercises).toEqual([]); // the account's exercises come from the cloud first
+    expect(currentDatabase()).toEqual({ name: 'the database' });
+  });
+
+  it('reopens that same database when the connection has gone stale', async () => {
+    const { initStore, update, whenSaved, emptyState } = await freshStore();
+    db.loadState.mockResolvedValue({ ...emptyState(), exercises: [{ id: 'e1' }] as AppState['exercises'], libraryVersion: 99 });
+    await initStore({ name: 'gym-tracker-abc', syncs: true, seed: false });
+    db.saveChanges.mockRejectedValueOnce(new Error('InvalidStateError'));
+    update(startWorkout('Push'));
+    await whenSaved();
+    expect(db.openDatabase).toHaveBeenLastCalledWith('gym-tracker-abc', true);
+  });
+
+  it('tells a listener about every change, with the state before and after', async () => {
+    const { initStore, update, onChange, emptyState } = await freshStore();
+    db.loadState.mockResolvedValue({ ...emptyState(), exercises: [{ id: 'e1' }] as AppState['exercises'], libraryVersion: 99 });
+    await initStore();
+    const seen: [string[], string[]][] = [];
+    const stop = onChange((before, after) => seen.push([names(before), names(after)]));
+
+    update(startWorkout('Push'));
+    update(() => undefined); // changes nothing: not news
+    update(startWorkout('Pull'));
+    expect(seen).toEqual([[[], ['Push']], [['Push'], ['Push', 'Pull']]]);
+
+    stop();
+    update(startWorkout('Legs'));
+    expect(seen).toHaveLength(2);
+  });
+
+  it('reads back what the database holds once everything is written — not what is in memory', async () => {
+    const { initStore, update, readSaved, emptyState } = await freshStore();
+    db.loadState.mockResolvedValue({ ...emptyState(), exercises: [{ id: 'e1' }] as AppState['exercises'], libraryVersion: 99 });
+    await initStore();
+    const onDisk = { ...emptyState(), libraryVersion: 7 }; // what another tab left there
+    db.loadState.mockResolvedValue(onDisk);
+
+    update(startWorkout('Push'));
+    const order: string[] = [];
+    db.saveChanges.mockImplementation(async () => { order.push('saved'); });
+    db.loadState.mockImplementation(async () => { order.push('read'); return onDisk; });
+    update(startWorkout('Pull'));
+    expect(await readSaved()).toBe(onDisk);
+    expect(order.at(-1)).toBe('read');
+    expect(order.slice(0, -1)).toContain('saved'); // the write came first
+  });
+
+  it('answers with nothing rather than something stale when the last write failed, or there is no database', async () => {
+    const { initStore, update, readSaved, emptyState } = await freshStore();
+    db.loadState.mockResolvedValue({ ...emptyState(), exercises: [{ id: 'e1' }] as AppState['exercises'], libraryVersion: 99 });
+    await initStore();
+    db.saveChanges.mockRejectedValue(new Error('QuotaExceededError'));
+    update(startWorkout('Push'));
+    expect(await readSaved()).toBeNull();
+
+    const second = await freshStore();
+    db.openDatabase.mockRejectedValue(new Error('SecurityError'));
+    await second.initStore();
+    expect(await second.readSaved()).toBeNull();
+  });
+
+  it('saves nothing more once it has let go of the database', async () => {
+    const { initStore, update, whenSaved, closeStore, currentDatabase, emptyState } = await freshStore();
+    const close = vi.fn();
+    db.openDatabase.mockResolvedValue({ name: 'the database', close });
+    db.loadState.mockResolvedValue({ ...emptyState(), exercises: [{ id: 'e1' }] as AppState['exercises'], libraryVersion: 99 });
+    await initStore({ name: 'gym-tracker-abc', syncs: true, seed: false });
+    closeStore();
+    expect(close).toHaveBeenCalled();
+    expect(currentDatabase()).toBeNull();
+    update(startWorkout('Push'));
+    await whenSaved();
+    expect(db.saveChanges).not.toHaveBeenCalled();
   });
 });

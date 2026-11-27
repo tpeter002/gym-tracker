@@ -2,6 +2,8 @@ import { Dumbbell, History as HistoryIcon, List, Scale, Settings as SettingsIcon
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { beginWorkout, startConflict } from './lib/actions';
+import { cloudConfig } from './lib/cloud/config';
+import { syncState } from './lib/cloud/session';
 import { sendWaiting } from './lib/exports';
 import { analyzePending, takeSharedLink } from './lib/identify';
 import { collectShared, ensureShareCode } from './lib/inbox';
@@ -77,6 +79,7 @@ export function App() {
   const state = useAppState();
   const storage = useSignal(storageStatus);
   const conflict = useSignal(startConflict);
+  const syncing = useSignal(syncState);
   const section = route[0] ?? '';
   const active = activeWorkout(state);
   // The Workout tab shows the running workout as a card of its own.
@@ -137,6 +140,16 @@ export function App() {
         {storage === 'failed' && (
           <p className="banner" role="alert">
             The last change couldn't be saved — the browser's storage may be full. Download a backup from Settings before closing this tab.
+          </p>
+        )}
+        {cloudConfig && section !== 'settings' && syncing.held > 0 && (
+          <p className="banner" role="alert">
+            Syncing is waiting for an answer: {syncing.held} items your account holds are no longer on this device. <Link to="/settings">Open Settings</Link>
+          </p>
+        )}
+        {cloudConfig && section !== 'settings' && syncing.problem === 'denied' && (
+          <p className="banner" role="alert">
+            This account is no longer on the guest list, so nothing is being synced. <Link to="/settings">Open Settings</Link>
           </p>
         )}
         {screenFor(route, state)}

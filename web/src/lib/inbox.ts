@@ -1,4 +1,4 @@
-import { analyzerEndpoint, askAnalyzer, postToAnalyzer } from './analyzer';
+import { analyzerEndpoint, askAnalyzer, hasAnalyzer, postToAnalyzer } from './analyzer';
 import { uid } from './ids';
 import { getState, update } from './store';
 import type { AppState, Settings } from './types';
@@ -16,9 +16,10 @@ export function ensureShareCode(state: AppState): void {
   if (!state.settings.shareCode) state.settings.shareCode = uid();
 }
 
-/** Where a Shortcut posts shared links for this browser; null until the inbox exists. */
+/** Where a Shortcut posts shared links for this browser; null until the inbox exists, or when there is no analyzer to hold it. */
 export function shareAddress(settings: Settings, pageURL: string): string | null {
-  return settings.shareCode ? analyzerEndpoint(settings.analyzerURL, `inbox/${settings.shareCode}`, pageURL) : null;
+  if (!settings.shareCode || !hasAnalyzer(settings.analyzerURL)) return null;
+  return analyzerEndpoint(settings.analyzerURL, `inbox/${settings.shareCode}`, pageURL);
 }
 
 let isCollecting = false;

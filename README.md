@@ -9,6 +9,7 @@ service behind both.
 | [`ios/`](ios/README.md) | The iPhone app (SwiftUI, SwiftData) and its share extension. |
 | [`web/`](web/README.md) | The same log in a browser (React, TypeScript). |
 | [`server/`](server/README.md) | The analyzer: names the exercises in a video with a vision model, serves the web version, takes links shared from other apps, and sends finished workouts to Strava and Garmin Connect. |
+| [`cloud/`](cloud/README.md) | The web version with accounts, for a handful of people on Firebase's free plan: the database rules, the host's settings, and how to set it up. Built and tested against emulators; not deployed yet. |
 
 The two apps are separate programs and keep separate data; each talks to the analyzer on its own.
 Each folder's README covers building, running and testing that part. What is planned next, and the
@@ -31,10 +32,13 @@ uv run server/test_connectors.py           # Strava and Garmin Connect
 uv run server/test_inbox.py                # links shared from other apps
 (cd web && npm test)                       # the web app's logic
 (cd web && npm run test:e2e)               # the built web app in two browsers
+(cd cloud && npm test)                     # the database rules of the version with accounts
+(cd cloud && npm run test:e2e)             # that version in two browsers, against Firebase's emulators
 ```
 
 The browser tests need Playwright's browsers once: `npx playwright install chromium webkit` in `web/`
-(more in [`web/README.md`](web/README.md#tests)). The iPhone app's tests run in Xcode or the simulator;
+(more in [`web/README.md`](web/README.md#tests)). The two in `cloud/` need `npm install` there and Java
+(more in [`cloud/README.md`](cloud/README.md#tests)). The iPhone app's tests run in Xcode or the simulator;
 see [`ios/README.md`](ios/README.md#tests).
 
 ## License

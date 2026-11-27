@@ -1,3 +1,4 @@
+import { cloudConfig } from './cloud/config';
 import { signal } from './signal';
 import { getState } from './store';
 import { MODEL_PROVIDERS } from './types';
@@ -22,6 +23,13 @@ export function analyzerEndpoint(address: string, path: string, pageURL: string)
   return `${base.replace(/\/+$/, '')}/${path}`;
 }
 
+/**
+ * Whether there is an analyzer to ask at all. A copy with accounts is served
+ * by a web host, not by an analyzer, so with no address set there is none —
+ * and asking the host instead would only be a wasted request each time.
+ */
+export const hasAnalyzer = (address: string): boolean => cloudConfig === null || address.trim() !== '';
+
 /** Browsers refuse to let an https page call a plain-http address (other than this computer). */
 export function isBlockedAsMixedContent(address: string, pageURL: string): boolean {
   try {
@@ -38,6 +46,7 @@ function unreachableMessage(address: string): string {
     return "This page is loaded over https, so the browser won't let it call an http analyzer. " +
       "Open the app from the analyzer's own address instead.";
   }
+  if (!hasAnalyzer(address)) return 'Identifying videos needs an analyzer. Enter the address of yours under Settings.';
   return address.trim()
     ? "Couldn't reach the analyzer. Check that it's running and that the address in Settings is right."
     : "There's no analyzer at this site. Start it on your Mac and open the app from its address, or set the address in Settings.";
@@ -58,6 +67,7 @@ export interface AnalyzerAnswer {
  * analysis (which has errors of its own to report). null when no analyzer answered.
  */
 export async function askAnalyzer(path: string, init?: RequestInit): Promise<AnalyzerAnswer | null> {
+  if (!hasAnalyzer(getState().settings.analyzerURL)) return null;
   try {
     const address = analyzerEndpoint(getState().settings.analyzerURL, path, document.baseURI);
     const response = await fetch(address, { cache: 'no-store', signal: AbortSignal.timeout(60_000), ...init });
@@ -108,6 +118,7 @@ export interface AnalyzerInfo {
 
 /** null when there is no analyzer at the address. */
 export async function analyzerInfo(address: string): Promise<AnalyzerInfo | null> {
+  if (!hasAnalyzer(address)) return null;
   try {
     const response = await fetch(analyzerEndpoint(address, 'health', document.baseURI), {
       cache: 'no-store',
@@ -134,6 +145,7 @@ export interface ModelOption {
 
 /** Models the analyzer suggests for a service; empty when it can't say. Any model name can still be typed. */
 export async function listModels(address: string, provider: ModelProvider): Promise<ModelOption[]> {
+  if (!hasAnalyzer(address)) return [];
   try {
     const url = `${analyzerEndpoint(address, 'models', document.baseURI)}?provider=${encodeURIComponent(provider)}`;
     const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
@@ -180,6 +192,7 @@ export async function analyze(
     if (choice.model) request.model = choice.model;
     if (choice.apiKey) request.api_key = choice.apiKey;
   }
+  if (!hasAnalyzer(address)) throw new AnalyzerUnreachable(unreachableMessage(address));
   let response: Response;
   try {
     response = await fetch(analyzerEndpoint(address, 'analyze', document.baseURI), {

@@ -11,11 +11,14 @@
     "dev": "vite",
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit && vite build",
+    "build:cloud": "tsc --noEmit && vite build --mode cloud --outDir dist-cloud",
+    "build:emulators": "tsc --noEmit && vite build --mode emulators --outDir dist-emulators",
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "firebase": "^12.19.0",
     "immer": "^11.2.10",
     "lucide-react": "^1.81.0",
     "react": "^19.3.1",

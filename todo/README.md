@@ -1,6 +1,6 @@
 # What's next
 
-Three things are agreed, in this order. Ideas that are not decided yet are in [ideas.md](ideas.md);
+Three things are agreed, in this order; the second is built and waits to be deployed. Ideas that are not decided yet are in [ideas.md](ideas.md);
 what the code review turned up and was deliberately left alone is in
 [review-leftovers.md](review-leftovers.md).
 
@@ -34,27 +34,56 @@ and end when it is finished or next opened; keep them on the workout; show them 
 **Goal:** 1–10 people, a login or two a day each, their data on every device they use — and nobody
 pays anything, the owner included. Each person brings their own model key.
 
-**Proposal:** Firebase's free plan (no payment method needed): Hosting for the site (https, so it
-opens at the gym without a connection), Authentication (Google sign-in), Firestore for the data.
-Supabase's free plan pauses a project after a week without activity, which rules it out here.
+**Built** (see [cloud/README.md](../cloud/README.md)): sign-in with email and password, by invitation;
+a per-account database in the browser kept in step with Firestore; database rules that let a person
+reach only their own records; the host's security headers; export and account deletion; a note in the
+app on where the data is kept. Tested against Firebase's emulators — rules, syncing, and the app in two
+browsers.
 
-**What has to change**
+**Not done: the deployment itself.** It needs a Firebase project, which only the owner can create
+(cloud/README.md → Setting it up, eight steps), and then the checks listed there under "The first
+deployment": the confirmation email, the page under the real headers, an iPhone Home Screen app that
+stays signed in and syncs after being offline.
 
-- Sign-in, and a sync layer under `web/src/lib/store.ts`: IndexedDB stays as the copy that works
-  offline; Firestore gets one document per workout, exercise, video and weigh-in, as `db.ts` already
-  stores them.
-- The share inbox moves from the analyzer to the cloud, so sharing a video works when the Mac is off.
-- The analyzer stays on a home machine — video sites turn away downloads from cloud servers (found
-  earlier; worth re-checking) — and is reached over an https tunnel (`ALLOWED_HOSTS` and
-  `ALLOWED_ORIGINS` exist for that). It has no login today: it would have to learn who is asking,
-  and keep Strava and Garmin connections per person instead of one set for the whole service.
+**What is still missing after that**
 
-**Before building:** read the limits on Firebase's own pricing page (a search summary said 50,000
-reads and 20,000 writes a day; one page mentioned a change from September 2026 that could not be
-attributed), and note that Google allows only its paid Gemini tier for apps offered to people in
-the EEA, Switzerland and the UK.
-
-**Needed from the owner:** a Firebase project.
+- **The analyzer per person.** It stays on a home machine — video sites turn away downloads from cloud
+  servers (found earlier; worth re-checking) — reached over an https tunnel (`ALLOWED_HOSTS` and
+  `ALLOWED_ORIGINS` exist for that). It has no login: it would have to learn who is asking, and keep
+  Strava and Garmin connections per person instead of one set for the whole service.
+- **The share inbox in the cloud,** so sharing a video works when the home machine is off. Without
+  Cloud Functions (not on the free plan) a Shortcut would post straight to Firestore, into an inbox
+  whose code a signed-in app registered; the rules for that are not written.
+- **Sign in with Google.** Left out on purpose: its pop-up and redirect are fragile in an iPhone Home
+  Screen app, and need frames the content security policy now forbids.
+- **Encrypting records on the device,** so that the database's console shows only ciphertext. The
+  record format has room for it (cloud/README.md → What protects the data); it costs a passphrase
+  that, once forgotten, nobody can recover.
+- **Friends' ranks side by side** — the idea that needed accounts. It also needs a rule that lets a
+  person share a few numbers with named others, and nothing more.
+- **Known gaps in syncing,** from an independent review of it (the rest of what it found is fixed):
+  - What a device takes over from the cloud and its note of having done so are saved in two steps. A
+    crash exactly between them, followed by another device changing the same record again, lets the
+    older version overwrite the newer one.
+  - The settings are one record, so the device that syncs last wins all of them; and an app update
+    that adds a setting makes each device send its settings once, over whatever is there.
+  - A record the server refuses blocks the request it travels in, and every later one. The app then
+    says "no longer on the guest list", whatever the reason was.
+  - Nothing notices records removed from the database by hand, and there is no "send everything
+    again" button.
+  - Restoring the wrong backup replaces the account on every device at one tap; no copy of what was
+    there is kept.
+  - Giving up on a request that never answers is not covered by a test. While the emulator tests were
+    being written, a sync stalled twice in some eight hundred test runs with nothing visibly wrong;
+    the time limit on requests was added after that and it has not been seen since, but what caused
+    it was never pinned down.
+- **Smaller things:** deleted records leave a marker (no content) in the database for good; a second
+  device that is open when the account is deleted can still write for up to an hour; two tabs of one
+  account are kept from syncing at once, but a browser without Web Locks is not; the ten-character
+  minimum for passwords is checked by the app only; creating an account tells whether an address
+  already has one; there is no "this is a shared computer" way to sign in; Google allows only its
+  paid Gemini tier for apps offered to people in the EEA, Switzerland and the UK, which matters once
+  other people use an analyzer with the owner's key.
 
 ## 3. Redesign to Apple's Human Interface Guidelines
 

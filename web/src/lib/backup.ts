@@ -1,6 +1,7 @@
 import { defaultSettings, EQUIPMENT, EXPORT_TARGETS, MUSCLE_GROUPS, normalizeSettings } from './types';
 import type { AppState, BodyWeight, Exercise, ExerciseSuggestion, ExportState, SavedVideo, SetEntry, Settings, Workout, WorkoutEntry } from './types';
 import { toDateInputValue } from './units';
+import { ROUTINE_NAME_MAX } from './workouts';
 
 // Everything lives in this browser's storage, so a file is the only way to
 // keep a copy or to move to another browser or device.
@@ -124,6 +125,8 @@ const readWorkout = (raw: Raw): Workout => {
   };
   const exports = readExports(raw.exports);
   if (exports) workout.exports = exports;
+  const routine = str(raw.routine).trim().slice(0, ROUTINE_NAME_MAX).trim();
+  if (routine && workout.endedAt !== null) workout.routine = routine;
   return workout;
 };
 

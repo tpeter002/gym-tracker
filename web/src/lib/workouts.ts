@@ -38,7 +38,7 @@ export function startEmpty(state: AppState, now = Date.now()): string {
  * Same exercises and set layout as the source. Values are left empty on
  * purpose: each row shows last time's numbers and takes them over when ticked.
  */
-export function startRepeat(state: AppState, sourceId: string, now = Date.now()): string | null {
+export function startRepeat(state: AppState, sourceId: string, now = Date.now(), name?: string): string | null {
   const source = findWorkout(state, sourceId);
   if (!source) return null;
   const names = new Map(state.exercises.map((exercise) => [exercise.id, exercise.name]));
@@ -54,10 +54,43 @@ export function startRepeat(state: AppState, sourceId: string, now = Date.now())
       ...(old.bothDumbbells ? { bothDumbbells: true } : {}),
     });
   }
-  const workout: Workout = { id: uid(), name: source.name, startedAt: now, endedAt: null, notes: '', entries };
+  // Started from a routine it carries the routine's name, which may not be the name of the workout it was saved from.
+  const workout: Workout = { id: uid(), name: name ?? source.name, startedAt: now, endedAt: null, notes: '', entries };
   state.workouts.push(workout);
   return workout.id;
 }
+
+// A routine is a finished workout kept under a name as a pattern: starting the
+// routine repeats that workout. "Up next" works routines out from history;
+// these are the ones made on purpose.
+
+export const ROUTINE_NAME_MAX = 60;
+
+/**
+ * Keeps a finished workout as a routine. There is one routine per name
+ * (whatever its capitals): saving another workout under a name in use moves
+ * the routine to it, which is how a routine is brought up to date.
+ */
+export function saveAsRoutine(state: AppState, workoutId: string, name: string): void {
+  const workout = findWorkout(state, workoutId);
+  const routine = name.trim().slice(0, ROUTINE_NAME_MAX).trim();
+  if (!workout || workout.endedAt === null || !routine) return;
+  for (const other of state.workouts) {
+    if (other.routine?.toLowerCase() === routine.toLowerCase()) delete other.routine;
+  }
+  workout.routine = routine;
+}
+
+export function removeRoutine(state: AppState, workoutId: string): void {
+  const workout = findWorkout(state, workoutId);
+  if (workout) delete workout.routine;
+}
+
+/** The routines, by name. */
+export const savedRoutines = (state: AppState) =>
+  state.workouts
+    .filter((workout): workout is Workout & { routine: string } => workout.endedAt !== null && Boolean(workout.routine))
+    .sort((a, b) => a.routine.localeCompare(b.routine, 'en'));
 
 export function addExercise(state: AppState, workoutId: string, exerciseId: string): void {
   const workout = findWorkout(state, workoutId);

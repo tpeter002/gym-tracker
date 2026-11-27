@@ -122,6 +122,8 @@ export interface Workout {
   entries: WorkoutEntry[];
   /** Per service, once the workout has been queued for it or sent by hand. */
   exports?: Partial<Record<ExportTarget, ExportState>>;
+  /** The name this finished workout is kept under as a routine: a pattern to start new workouts from. */
+  routine?: string;
 }
 
 export interface BodyWeight {

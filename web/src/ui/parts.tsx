@@ -62,10 +62,16 @@ export function DumbbellToggle({ workoutId, entry }: { workoutId: string; entry:
 const SUMMARY_ENTRIES = 4;
 
 /** A workout at a glance: its name, a line of facts (`meta`) and its first few exercises. */
-export function WorkoutSummary({ workout, meta, children }: { workout: Workout; meta: ReactNode; children?: ReactNode }) {
+export function WorkoutSummary({ workout, title, meta, children }: {
+  workout: Workout;
+  /** In place of the workout's own name: a routine is listed under the routine's. */
+  title?: string;
+  meta: ReactNode;
+  children?: ReactNode;
+}) {
   return (
     <div className="summary">
-      <h3>{workout.name}</h3>
+      <h3>{title ?? workout.name}</h3>
       <div className="meta">{meta}</div>
       <ul>
         {workout.entries.slice(0, SUMMARY_ENTRIES).map((entry) => (

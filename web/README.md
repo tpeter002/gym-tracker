@@ -18,6 +18,8 @@ What it does that the iPhone app doesn't yet:
   — the workout already has an exercise for the same muscle, or at least a third of it is about the same
   part of the body (legs, push, pull). They are offered with one tap each, never added by themselves.
 - **Ranks**: every lift gets a rank, and so does the lifter — see [Ranks](#ranks).
+- **Routines** saved on purpose, a **rest timer**, and **editing a finished workout** — see
+  [Routines](#routines), [Rest timer](#rest-timer) and [Editing a finished workout](#editing-a-finished-workout).
 - **One dumbbell or both**: each logged dumbbell exercise says how its weights were typed in — see
   [Dumbbell weights](#dumbbell-weights).
 - **Sharing from other apps** without a share extension — see
@@ -113,6 +115,18 @@ Two other ways in:
 
 - Opening `<app address>/?url=<link>` saves the link — handy as a bookmark in the browser the app runs in.
 - On Android, an installed copy is listed in the share sheet (`share_target` in the manifest). Untested.
+
+## Routines
+
+"Up next" works your routines out from what you have been doing. To make one on purpose, open a
+finished workout and choose **Save as Routine…** from its menu. It then has a row of its own on the
+Workout tab with a **Start** button, which repeats that workout — the same exercises and sets, last
+time's numbers on offer — under the routine's name.
+
+A routine is that one workout kept as a pattern; it does not follow what you do afterwards. To bring
+it up to date, save a newer workout under the same name: there is one routine per name, and the
+sheet says which workout it is moving from. **Rename Routine…** and **Remove from Routines** are in
+the same menu; deleting the workout removes the routine with it.
 
 ## Rest timer
 

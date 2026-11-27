@@ -37,16 +37,18 @@ change, or at least mark it.
 
 ## Others
 
-- **Edit a finished workout.** Today a finished workout can only be deleted (and its dumbbell
-  counting changed). A wrong number stays wrong.
-- **Rest timer** between sets.
-- **Routines by name.** "Up next" infers them from history; let them be made and named on purpose.
+- **A routine built from scratch, and one that keeps up.** A routine is a finished workout saved
+  under a name; it can't be put together without doing it once, and it doesn't follow later
+  sessions unless a newer workout is saved under the same name.
+- **Rest timer, further:** a length per exercise, and a way to be told when the phone is locked
+  (a web page can't; the iPhone app could).
 - **Supersets.**
 - **A best-set celebration** of its own: a new record that doesn't happen to cross a rank step
   passes unnoticed.
 - **Volume per muscle group by week**, and a calendar of training days.
 - **Plate calculator** for barbell lifts.
-- **Friends' ranks side by side**, once there are accounts.
+- **Friends' ranks side by side.** Agreed as worth doing; it needs accounts, so it follows the
+  hosting work in [README.md](README.md).
 - **Export to CSV**, in Strong's format, so leaving is as easy as arriving.
 - **A reminder to download a backup** until the data is synced somewhere.
 - **Apple Health:** the iPhone app could write finished workouts to it (Health has no place for

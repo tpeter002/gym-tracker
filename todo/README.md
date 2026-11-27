@@ -88,4 +88,5 @@ old build against new) is the way to see what moved.
   would have caught things the review found by hand.
 - **Python dependencies** are unpinned (the web side has a lock file): `uv lock --script` would fix
   the versions the service runs with.
-- **The iPhone app** lacks seven things the web version has. Keep it in step, or freeze it?
+- **The iPhone app** lacks ten things the web version has (ranks, routines, the rest timer and
+  editing a finished workout among them). Keep it in step, or freeze it?

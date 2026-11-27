@@ -8,12 +8,12 @@ import { useSignal } from '../lib/signal';
 import { update } from '../lib/store';
 import { EXPORT_TARGET_TITLES, EXPORT_TARGETS } from '../lib/types';
 import type { AppState, Workout } from '../lib/types';
-import { effortLabel, fmtCount, fmtDateTime, fmtDuration, fmtMonthYear, fmtNumber, fromKg, setText } from '../lib/units';
+import { effortLabel, fmtCount, fmtDate, fmtDateTime, fmtDuration, fmtMonthYear, fmtNumber, fromKg, setText } from '../lib/units';
 import { webLink } from '../lib/videos';
-import { deleteWorkout, doneSets, durationSeconds, finishedWorkouts, rowLabels, takesDumbbells, volumeKg } from '../lib/workouts';
+import { deleteWorkout, doneSets, durationSeconds, finishedWorkouts, removeRoutine, ROUTINE_NAME_MAX, rowLabels, saveAsRoutine, takesDumbbells, volumeKg } from '../lib/workouts';
 import { EmptyState, Link, Page, Section, ValueRow } from '../ui/layout';
 import { Spinner } from '../ui/controls';
-import { ConfirmDialog, Menu } from '../ui/overlays';
+import { ConfirmDialog, Menu, Sheet } from '../ui/overlays';
 import { DumbbellToggle, WorkoutRow } from '../ui/parts';
 import { RankBadge } from '../ui/RankBadge';
 import { useLiftRanks } from '../ui/useLiftRanks';
@@ -101,6 +101,7 @@ function Sharing({ workout }: { workout: Workout }) {
 export function WorkoutDetail({ state, workout }: { state: AppState; workout: Workout }) {
   const { unit, effort } = state.settings;
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [namingRoutine, setNamingRoutine] = useState(false);
   const seconds = durationSeconds(workout);
   const volume = volumeKg(workout);
   const known = useMemo(() => new Map(state.exercises.map((exercise) => [exercise.id, exercise])), [state.exercises]);
@@ -122,6 +123,8 @@ export function WorkoutDetail({ state, workout }: { state: AppState; workout: Wo
           label="Workout options"
           items={[
             { label: 'Edit Workout', run: () => navigate(`/history/${workout.id}/edit`) },
+            { label: workout.routine ? 'Rename Routine…' : 'Save as Routine…', run: () => setNamingRoutine(true) },
+            ...(workout.routine ? [{ label: 'Remove from Routines', run: () => update((draft) => removeRoutine(draft, workout.id)) }] : []),
             { label: 'Delete Workout', destructive: true, run: () => setConfirmDelete(true) },
           ]}
         >
@@ -134,6 +137,7 @@ export function WorkoutDetail({ state, workout }: { state: AppState; workout: Wo
         {seconds >= 60 && <ValueRow label="Duration" value={fmtDuration(seconds)} />}
         <ValueRow label="Sets" value={doneSets(workout).length} />
         {volume > 0 && <ValueRow label="Volume" value={`${fmtNumber(fromKg(unit, volume), 0)} ${unit}`} />}
+        {workout.routine && <ValueRow label="Routine" value={workout.routine} />}
         {workout.notes && <div className="row secondary prewrap">{workout.notes}</div>}
       </Section>
 
@@ -184,9 +188,11 @@ export function WorkoutDetail({ state, workout }: { state: AppState; workout: Wo
         </button>
       </div>
 
+      {namingRoutine && <RoutineName state={state} workout={workout} onClose={() => setNamingRoutine(false)} />}
       {confirmDelete && (
         <ConfirmDialog
           title="Delete this workout?"
+          message={workout.routine ? `The routine “${workout.routine}” was saved from it and goes with it.` : undefined}
           actions={[{
             label: 'Delete Workout',
             destructive: true,
@@ -199,5 +205,45 @@ export function WorkoutDetail({ state, workout }: { state: AppState; workout: Wo
         />
       )}
     </Page>
+  );
+}
+
+/** Names the routine a workout is kept as. A name already in use is taken over, and the sheet says so first. */
+function RoutineName({ state, workout, onClose }: { state: AppState; workout: Workout; onClose: () => void }) {
+  const [name, setName] = useState(workout.routine ?? workout.name);
+  const trimmed = name.trim();
+  const taken = state.workouts.find((other) => other.id !== workout.id && other.routine?.toLowerCase() === trimmed.toLowerCase());
+
+  const save = () => {
+    if (!trimmed) return;
+    update((draft) => saveAsRoutine(draft, workout.id, trimmed));
+    onClose();
+  };
+
+  return (
+    <Sheet
+      title={workout.routine ? 'Rename Routine' : 'Save as Routine'}
+      onClose={onClose}
+      trailing={<button className="bar-button strong" disabled={!trimmed} onClick={save}>Save</button>}
+    >
+      <Section
+        footer={taken
+          ? `“${taken.routine}” is saved from your workout of ${fmtDate(taken.startedAt)}. Saving moves it to this one.`
+          : "A routine shows on the Workout tab with a Start button, which repeats this workout: the same exercises and sets, with last time's numbers to beat."}
+      >
+        <div className="row">
+          <input
+            className="field title"
+            aria-label="Routine name"
+            placeholder="Routine name"
+            maxLength={ROUTINE_NAME_MAX}
+            data-autofocus
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            onKeyDown={(event) => event.key === 'Enter' && save()}
+          />
+        </div>
+      </Section>
+    </Sheet>
   );
 }

@@ -4,8 +4,8 @@ import { requestStart } from '../lib/actions';
 import { byNewest, nextWorkout, toTryFor } from '../lib/suggestions';
 import type { Routine } from '../lib/suggestions';
 import type { AppState } from '../lib/types';
-import { fmtDaysAgo } from '../lib/units';
-import { activeWorkout, finishedWorkouts } from '../lib/workouts';
+import { fmtCount, fmtDate, fmtDaysAgo } from '../lib/units';
+import { activeWorkout, finishedWorkouts, savedRoutines } from '../lib/workouts';
 import { Link, LinkRow, Page, Section } from '../ui/layout';
 import { ExerciseLabel, ResumeCard, WorkoutRow, WorkoutSummary } from '../ui/parts';
 
@@ -26,6 +26,7 @@ export function Home({ state }: { state: AppState }) {
     [state.exercises],
   );
   const next = useMemo(() => nextWorkout(state), [state.workouts]);
+  const routines = useMemo(() => savedRoutines(state), [state.workouts]);
 
   return (
     <Page
@@ -49,6 +50,29 @@ export function Home({ state }: { state: AppState }) {
       </div>
 
       {next && <NextWorkout state={state} routine={next} />}
+
+      {routines.length > 0 && (
+        <Section title="Routines" footer="Starting one repeats the workout it was saved from. A finished workout's page has “Save as Routine”.">
+          {routines.map((workout) => (
+            <div key={workout.id} className="row split">
+              <Link to={`/history/${workout.id}`} className="row-main">
+                <WorkoutSummary
+                  workout={workout}
+                  title={workout.routine}
+                  meta={<span>{fmtCount(workout.entries.length, 'exercise')} · from {fmtDate(workout.startedAt)}</span>}
+                />
+              </Link>
+              <button
+                className="btn btn-primary btn-inline"
+                aria-label={`Start ${workout.routine}`}
+                onClick={() => requestStart({ kind: 'repeat', workoutId: workout.id, name: workout.routine })}
+              >
+                Start
+              </button>
+            </div>
+          ))}
+        </Section>
+      )}
 
       <Section
         title="To try"

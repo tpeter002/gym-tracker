@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { beginWorkout, startConflict } from './lib/actions';
 import { sendWaiting } from './lib/exports';
-import { analyzePending, takeSharedLink } from './lib/inbox';
+import { analyzePending, collectShared, ensureShareCode, takeSharedLink } from './lib/inbox';
 import { navigate, useRoute } from './lib/router';
 import { storageStatus, update, useAppState, useSignal } from './lib/store';
 import type { AppState } from './lib/types';
@@ -72,12 +72,14 @@ export function App() {
   const showResumeBar = active !== undefined && section !== '' && section !== 'workout';
 
   useEffect(() => {
+    update(ensureShareCode);
     const shared = takeSharedLink();
     if (shared) navigate(`/videos/${shared}`);
     // Videos saved, and workouts finished, while the analyzer was out of reach get their turn whenever the app comes to the front.
     const sweep = () => {
       if (document.visibilityState !== 'visible') return;
-      void analyzePending();
+      // Links shared from other apps first, so they are identified in the same pass.
+      void collectShared().then(analyzePending);
       void sendWaiting();
     };
     sweep();

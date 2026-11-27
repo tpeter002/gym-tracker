@@ -43,6 +43,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import connectors
+import inbox
 
 PORT = int(os.environ.get("PORT", "8787"))
 MODEL_TIMEOUT = 200  # seconds for the model's answer; the apps give a whole analysis 240
@@ -648,6 +649,8 @@ def identify_exercises(choice: ModelChoice, frames: list[tuple[float, Path]], in
 app = FastAPI(title="Gym Tracker video analyzer")
 # Sending finished workouts to Strava and Garmin Connect lives in connectors.py.
 app.include_router(connectors.router)
+# Links shared from other apps on a phone wait in inbox.py until the web app collects them.
+app.include_router(inbox.router)
 
 
 @app.get("/health")

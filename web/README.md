@@ -78,11 +78,29 @@ suggestions from the analyzer (for OpenRouter, its current list with prices, fre
 key field empty to use the key the analyzer has, or enter your own. Each saved video shows which model
 identified it, and **Identify Again** asks whichever model is selected now.
 
-A web page can't appear in the iPhone share sheet. Two partial substitutes:
+### Sharing from Instagram, TikTok or YouTube
 
-- Opening `<app address>/?url=<link>` saves the link — usable from a bookmark or an iOS Shortcut that
-  takes the share sheet's input. On iPhone a Home Screen app keeps its data apart from Safari's, so
-  this only helps if you use the app in a Safari tab.
+A web page can't appear in the iPhone share sheet, and a Shortcut can't hand a link to an app on the
+Home Screen either — it can only open Safari, which keeps its data apart. So the link goes through the
+analyzer: a Shortcut in the share sheet posts it to an inbox that belongs to one copy of the app, and
+that copy collects it the next time it is open (and identifies it straight away).
+
+**Settings → Share from other apps** shows the address of that inbox, with a button to copy it. Open
+Settings in the copy you actually use — the one on the Home Screen has a different inbox from a Safari
+tab. Then, once, in the Shortcuts app:
+
+1. New shortcut → add the action **Get Contents of URL** and paste the address as its URL.
+2. In the action's options: Method **POST**, Request Body **JSON**, one text field named `url` whose
+   value is the variable **Shortcut Input**.
+3. In the shortcut's details switch on **Show in Share Sheet**; name it "Gym Tracker".
+
+From then on: Share → Gym Tracker in any app. The phone has to reach the analyzer at that moment, so
+on the Mac's `http://` address this works on the home Wi-Fi while the Mac is awake. Tested by posting
+to the inbox the way a Shortcut does; the Shortcut itself has not been run on a phone yet.
+
+Two other ways in:
+
+- Opening `<app address>/?url=<link>` saves the link — handy as a bookmark in the browser the app runs in.
 - On Android, an installed copy is listed in the share sheet (`share_target` in the manifest). Untested.
 
 ## Tests
@@ -93,11 +111,13 @@ npx playwright install chromium webkit # once
 npm run test:e2e                       # the built app in desktop Chromium and iPhone-sized WebKit
 uv run ../server/test_analyzer.py      # the analyzer's side
 uv run ../server/test_connectors.py    # Strava and Garmin Connect
+uv run ../server/test_inbox.py         # links shared from other apps
 ```
 
 The browser tests stand in for the analyzer themselves, so they need neither the Mac service nor an API
 key. They cover logging, finishing and repeating a workout, custom exercises, the to-try list, saved
-videos with and without the analyzer, choosing the model and key, Strong import, body weight, units,
+videos with and without the analyzer, videos shared from other apps, choosing the model and key,
+Strong import, body weight, units,
 backup and restore, two tabs, and opening without a connection (Chromium only).
 
 ## Code

@@ -8,7 +8,7 @@ service behind both.
 | :- | :- |
 | [`ios/`](ios/README.md) | The iPhone app (SwiftUI, SwiftData) and its share extension. |
 | [`web/`](web/README.md) | The same log in a browser (React, TypeScript). |
-| [`server/`](server/README.md) | The analyzer: names the exercises in a video with a vision model, serves the web version, and sends finished workouts to Strava and Garmin Connect. |
+| [`server/`](server/README.md) | The analyzer: names the exercises in a video with a vision model, serves the web version, takes links shared from other apps, and sends finished workouts to Strava and Garmin Connect. |
 
 The two apps are separate programs and keep separate data; each talks to the analyzer on its own.
 Each folder's README covers building, running and testing that part.
@@ -27,6 +27,7 @@ uv run server/analyzer.py                  # then open http://localhost:8787
 ```sh
 uv run server/test_analyzer.py             # the analyzer
 uv run server/test_connectors.py           # Strava and Garmin Connect
+uv run server/test_inbox.py                # links shared from other apps
 (cd web && npm test && npm run test:e2e)   # the web app: logic, then the built app in two browsers
 ```
 

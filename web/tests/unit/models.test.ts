@@ -14,7 +14,7 @@ describe('model settings', () => {
   it('start with the choice left to the analyzer', () => {
     expect(defaultSettings()).toEqual({
       unit: 'kg', effort: 'rpe', analyzerURL: '', modelProvider: '', models: NO_KEYS, apiKeys: NO_KEYS,
-      autoExport: { strava: false, garmin: false },
+      autoExport: { strava: false, garmin: false }, shareCode: '',
     });
     expect(modelChoice(defaultSettings())).toBeNull();
   });
@@ -37,7 +37,7 @@ describe('model settings', () => {
       unit: 'lb', effort: 'rir', analyzerURL: 'http://mac.local:8787', modelProvider: 'openrouter',
       models: { anthropic: 'claude-haiku-5-5', zai: '', openrouter: 'qwen/qwen3.8-flash', gemini: 'gemini-3.5-flash-lite' },
       apiKeys: { anthropic: '', zai: 'zai-key', openrouter: 'sk-or-key', gemini: '' },
-      autoExport: { strava: true, garmin: false },
+      autoExport: { strava: true, garmin: false }, shareCode: 'a1b2c3d4e5f6a7b8c9d0e1f2',
     };
     expect(normalizeSettings(settings)).toEqual(settings);
     expect(normalizeSettings(structuredClone(settings))).not.toBe(settings);

@@ -237,3 +237,32 @@ export async function logAndFinishWorkout(page: Page): Promise<void> {
   await page.getByRole('alertdialog', { name: 'Finish workout?' }).getByRole('button', { name: 'Finish' }).click();
   await expect(page).toHaveURL(/#\/history$/);
 }
+
+/** The analyzer's inbox for links shared from other apps, as the browser tests steer it. */
+export interface InboxMock {
+  /** What waits for the app. Add to it to share another link. */
+  links: { id: string; url: string; added_at: number }[];
+  /** Inbox addresses the app asked for, in order. */
+  asked: string[];
+  /** Ids the app reported as taken, one list per report. */
+  taken: string[][];
+}
+
+/** Stands in for /inbox/<code> and /inbox/<code>/taken. Taken links stop waiting, as at the real analyzer. */
+export async function mockInbox(page: Page, urls: string[] = []): Promise<InboxMock> {
+  const mock: InboxMock = { links: [], asked: [], taken: [] };
+  let shared = 0;
+  const share = (url: string) => mock.links.push({ id: `link-${++shared}`, url, added_at: Date.now() });
+  urls.forEach(share);
+  await page.route(/\/inbox\/[\w-]+$/, (route) => {
+    mock.asked.push(new URL(route.request().url()).pathname);
+    return route.fulfill({ json: { links: mock.links } });
+  });
+  await page.route(/\/inbox\/[\w-]+\/taken$/, (route) => {
+    const { ids } = JSON.parse(route.request().postData() ?? '{}') as { ids: string[] };
+    mock.taken.push(ids);
+    mock.links = mock.links.filter((link) => !ids.includes(link.id));
+    return route.fulfill({ json: { links: mock.links } });
+  });
+  return mock;
+}

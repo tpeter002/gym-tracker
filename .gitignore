@@ -22,6 +22,9 @@ ios/ShareExtension/ShareExtension.entitlements
 server/connections.json
 server/connections.tmp
 server/garmin-tokens/
+# Links shared from other apps, waiting for the web app
+server/inbox.json
+server/inbox.tmp
 __pycache__/
 .pytest_cache/
 

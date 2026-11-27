@@ -154,6 +154,12 @@ export interface Settings {
   apiKeys: Record<ModelProvider, string>;
   /** Whether a workout is sent to each connected service as soon as it is finished. */
   autoExport: Record<ExportTarget, boolean>;
+  /**
+   * Names this browser's inbox at the analyzer, where links shared from other
+   * apps wait (see inbox.ts). Made on first use; a backup never contains it,
+   * or two devices would empty each other's inbox.
+   */
+  shareCode: string;
 }
 
 export interface AppState {
@@ -177,7 +183,11 @@ export const defaultSettings = (): Settings => ({
   models: perProvider(() => ''),
   apiKeys: perProvider(() => ''),
   autoExport: { strava: false, garmin: false },
+  shareCode: '',
 });
+
+/** What the analyzer accepts as an inbox code. */
+export const SHARE_CODE = /^[A-Za-z0-9_-]{8,64}$/;
 
 /**
  * Settings as they come out of storage or a backup file, made whole: anything
@@ -200,6 +210,7 @@ export function normalizeSettings(raw: unknown): Settings {
     models: table(stored.models),
     apiKeys: table(stored.apiKeys),
     autoExport: { strava: flags(stored.autoExport).strava === true, garmin: flags(stored.autoExport).garmin === true },
+    shareCode: SHARE_CODE.test(text(stored.shareCode)) ? text(stored.shareCode) : '',
   };
 }
 

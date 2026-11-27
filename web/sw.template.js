@@ -26,7 +26,7 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
   // Analyzer calls always go to the network.
   // The analyzer's own addresses are never answered from the cache.
-  if (/\/(health|analyze|models|connections|(exports|strava|garmin)\/[\w-]+)$/.test(url.pathname)) return;
+  if (/\/(health|analyze|models|connections|(exports|strava|garmin)\/[\w-]+|inbox\/[\w-]+(\/taken)?)$/.test(url.pathname)) return;
   // Matched by address alone: many servers send "Vary" headers that would
   // otherwise make the copy stored at install time miss for the page's own requests.
   event.respondWith(

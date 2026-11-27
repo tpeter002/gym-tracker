@@ -1,10 +1,12 @@
 # Gym Tracker — analyzer
 
 The one service behind both apps. It names the exercises in a saved workout video, serves the built
-[web version](../web/README.md), and sends finished workouts to Strava and Garmin Connect. It runs on
-your own computer; the phone reaches it over Wi-Fi.
+[web version](../web/README.md), holds links shared to the web version from other apps, and sends
+finished workouts to Strava and Garmin Connect. It runs on your own computer; the phone reaches it
+over Wi-Fi.
 
 - `analyzer.py` — the service itself: download, frames, the vision model.
+- `inbox.py` — links shared from other apps, waiting for the web version to collect them.
 - `connectors.py` — Strava and Garmin Connect.
 - `stub_analyzer.py` — a stand-in with a canned answer, for testing the apps without a model.
 - `.env.example` — the settings, to copy to `.env`.
@@ -84,6 +86,21 @@ answer formats and were run as far as a made-up key gets (they refuse it, and th
 free model has not returned an analysis yet. How well a given model names exercises is something to try
 on your own videos — **Identify Again** makes that a one-tap comparison.
 
+## Links shared from other apps
+
+The web version can't be in the iPhone share sheet, so an iOS Shortcut posts the shared link here and
+the app picks it up when it is next open ([how to set that up](../web/README.md#sharing-from-instagram-tiktok-or-youtube)).
+
+- `POST /inbox/<code>` — leaves a link. The body can be JSON (`{"url": "…"}` or `{"text": "…"}`), a
+  form with the same fields, or plain text; the first web address in it is kept. Answers
+  `{"saved": true, "url": "…", "waiting": 1}`, or 422 when there is no link.
+- `GET /inbox/<code>` — what is waiting: `{"links": [{"id", "url", "added_at"}]}`.
+- `POST /inbox/<code>/taken` with `{"ids": […]}` — the app has saved these; they are dropped.
+
+Each copy of the web app makes up its own code, so two browsers never empty each other's inbox. The
+links wait in `server/inbox.json` (not in git): at most 100 per inbox, for at most two months. As
+with the rest of the service there is no login — the code keeps inboxes apart, it doesn't guard them.
+
 ## Sending workouts to Strava and Garmin Connect
 
 The web version can send a workout to Strava and Garmin Connect when you finish it. The analyzer holds
@@ -145,3 +162,5 @@ Garmin account yet, so how the sets appear in Garmin Connect is still to be seen
   and OpenRouter, reading their answers and errors. They call no outside service.
 - **Connector tests**: `uv run server/test_connectors.py` — connecting, sending and not sending twice,
   for Strava and Garmin Connect.
+- **Inbox tests**: `uv run server/test_inbox.py` — leaving, listing and taking shared links, and what
+  is refused.

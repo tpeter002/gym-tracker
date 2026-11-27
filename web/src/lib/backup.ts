@@ -1,5 +1,5 @@
 import { defaultSettings, EQUIPMENT, EXPORT_TARGETS, MUSCLE_GROUPS, normalizeSettings } from './types';
-import type { AppState, BodyWeight, Exercise, ExerciseSuggestion, ExportState, SavedVideo, SetEntry, Workout, WorkoutEntry } from './types';
+import type { AppState, BodyWeight, Exercise, ExerciseSuggestion, ExportState, SavedVideo, SetEntry, Settings, Workout, WorkoutEntry } from './types';
 import { toDateInputValue } from './units';
 
 // Everything lives in this browser's storage, so a file is the only way to
@@ -15,13 +15,17 @@ export const backupFilename = (now = Date.now()) => `gym-tracker-backup-${toDate
 
 export function exportBackup(state: AppState, now = Date.now()): string {
   // API keys stay out: a backup gets emailed, synced and left in download folders.
-  const data: AppState = { ...state, settings: { ...state.settings, apiKeys: defaultSettings().apiKeys } };
+  // So does the inbox code, which belongs to this browser alone.
+  const data: AppState = { ...state, settings: { ...state.settings, ...ownToThisBrowser(defaultSettings()) } };
   return JSON.stringify({ app: BACKUP_APP, version: BACKUP_VERSION, exportedAt: now, data });
 }
 
-/** What the app holds after restoring `backup` over `current`: everything from the file, plus this browser's own API keys. */
+/** The settings that never travel in a backup. */
+const ownToThisBrowser = (settings: Settings) => ({ apiKeys: settings.apiKeys, shareCode: settings.shareCode });
+
+/** What the app holds after restoring `backup` over `current`: everything from the file, plus this browser's own API keys and inbox. */
 export function restoreBackup(current: AppState, backup: Backup): AppState {
-  return { ...backup.state, settings: { ...backup.state.settings, apiKeys: current.settings.apiKeys } };
+  return { ...backup.state, settings: { ...backup.state.settings, ...ownToThisBrowser(current.settings) } };
 }
 
 export interface Backup {
@@ -176,8 +180,8 @@ export function parseBackup(text: string): Backup {
       workouts,
       bodyWeights: list(data.bodyWeights, 'body weights', readBodyWeight),
       videos: list(data.videos, 'videos', readVideo),
-      // Keys are never taken from a file, whatever it claims to hold.
-      settings: { ...normalizeSettings(data.settings), apiKeys: defaultSettings().apiKeys },
+      // Keys and the inbox code are never taken from a file, whatever it claims to hold.
+      settings: { ...normalizeSettings(data.settings), ...ownToThisBrowser(defaultSettings()) },
       libraryVersion: numOrNull(data.libraryVersion) ?? 0,
     },
   };

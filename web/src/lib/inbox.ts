@@ -1,5 +1,7 @@
-import { analyze, AnalyzerError, isReachable, modelChoice } from './analyzer';
+import { analyze, analyzerEndpoint, AnalyzerError, isReachable, modelChoice } from './analyzer';
+import { uid } from './ids';
 import { getState, signal, update } from './store';
+import type { AppState, Settings } from './types';
 import { applyAnalysis, saveVideoLink } from './videos';
 
 // Turns pasted / shared links into saved videos and sends them to the analyzer.
@@ -92,6 +94,61 @@ export async function analyzePending(): Promise<void> {
     }
   } finally {
     isSweeping = false;
+  }
+}
+
+// --- links shared from other apps -----------------------------------------------
+//
+// A web page can't be listed in the iPhone share sheet, and a Shortcut can't
+// hand a link to an app on the Home Screen. So a Shortcut posts the link to
+// the analyzer, into an inbox only this browser reads (server/inbox.py), and
+// the app collects what is waiting whenever it comes to the front.
+
+/** Gives this browser its inbox, the first time the app runs in it. */
+export function ensureShareCode(state: AppState): void {
+  if (!state.settings.shareCode) state.settings.shareCode = uid();
+}
+
+/** Where a Shortcut posts shared links for this browser; null until the inbox exists. */
+export function shareAddress(settings: Settings, pageURL: string): string | null {
+  return settings.shareCode ? analyzerEndpoint(settings.analyzerURL, `inbox/${settings.shareCode}`, pageURL) : null;
+}
+
+let isCollecting = false;
+
+/** Saves the links shared since last time as videos. Returns how many were new. */
+export async function collectShared(): Promise<number> {
+  const address = shareAddress(getState().settings, document.baseURI);
+  if (!address || isCollecting) return 0;
+  isCollecting = true;
+  try {
+    const response = await fetch(address, { cache: 'no-store', signal: AbortSignal.timeout(5000) });
+    // A static host may answer any path with its own page; only JSON is the analyzer.
+    if (!response.ok || !(response.headers.get('content-type') ?? '').includes('json')) return 0;
+    const body = (await response.json()) as { links?: unknown };
+    const waiting = (Array.isArray(body.links) ? body.links : []).flatMap((item: unknown) => {
+      const link = (typeof item === 'object' && item !== null ? item : {}) as Record<string, unknown>;
+      return typeof link.id === 'string' && typeof link.url === 'string' ? [{ id: link.id, url: link.url }] : [];
+    });
+    if (waiting.length === 0) return 0;
+
+    let created = 0;
+    update((draft) => {
+      for (const link of waiting) created += saveVideoLink(draft, link.url)?.created ? 1 : 0;
+    });
+    // Only now may the analyzer forget them. If this fails they come again next
+    // time, and saving a link that is already there changes nothing.
+    await fetch(`${address}/taken`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: waiting.map((link) => link.id) }),
+      signal: AbortSignal.timeout(5000),
+    });
+    return created;
+  } catch {
+    return 0; // no analyzer within reach; the links keep waiting
+  } finally {
+    isCollecting = false;
   }
 }
 

@@ -22,7 +22,7 @@ import inbox
 
 MINE = "a1b2c3d4e5f6a7b8"
 THEIRS = "ffffeeeeddddcccc"
-REEL = "https://www.instagram.com/reel/DfBev3RTD5k/?igsh=MTE2eXUz"
+REEL = "https://www.instagram.com/reel/Cxyz123/?igsh=abc123"
 SHORT = "https://youtube.com/shorts/abc123XYZ_-"
 START = 1_795_712_400.0  # 2026-11-26 17:00:00 UTC, in seconds
 
@@ -83,7 +83,7 @@ def test_an_overlong_address_is_passed_over_for_the_next_one():
     (json.dumps(REEL), "application/json"),
     (REEL, "text/plain"),
     (f"Check this out! {REEL}", ""),
-    ("url=https%3A%2F%2Fwww.instagram.com%2Freel%2FDfBev3RTD5k%2F%3Figsh%3DMTE2eXUz", "application/x-www-form-urlencoded"),
+    ("url=https%3A%2F%2Fwww.instagram.com%2Freel%2FCxyz123%2F%3Figsh%3Dabc123", "application/x-www-form-urlencoded"),
     (f'--b\r\nContent-Disposition: form-data; name="url"\r\n\r\n{REEL}\r\n--b--\r\n', "multipart/form-data; boundary=b"),
 ])
 def test_a_shortcut_can_send_the_link_as_json_a_form_or_plain_text(service, body, content_type):

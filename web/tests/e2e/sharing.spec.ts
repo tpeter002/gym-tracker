@@ -5,7 +5,7 @@ import { CANNED_ANALYSIS, mockAnalyzer, mockInbox, seed } from './helpers';
 // Videos shared from other apps: a Shortcut leaves the link in this browser's
 // inbox at the analyzer, and the app collects it the next time it is open.
 
-const REEL = 'https://www.instagram.com/reel/DfBev3RTD5k/';
+const REEL = 'https://www.instagram.com/reel/Cxyz123/';
 
 const shareAddress = (page: Page) => page.getByLabel('Share address');
 /** What happens when the app is brought back to the front. */
@@ -13,7 +13,7 @@ const comeBack = (page: Page) => page.evaluate(() => document.dispatchEvent(new 
 
 test('a video shared from another app is saved and identified when the app opens', async ({ page }) => {
   const analyses = await mockAnalyzer(page, 200, CANNED_ANALYSIS);
-  const inbox = await mockInbox(page, [`${REEL}?igsh=MTE2eXUzMzg0YTVtOA==`]);
+  const inbox = await mockInbox(page, [`${REEL}?igsh=abc123`]);
 
   await page.goto('/#/');
 

@@ -8,7 +8,7 @@ import { defaultSettings, emptyState, normalizeSettings, SHARE_CODE } from '../.
 // and collecting what a Shortcut left there.
 
 const CODE = 'a1b2c3d4e5f6a7b8c9d0e1f2';
-const REEL = 'https://www.instagram.com/reel/DfBev3RTD5k/';
+const REEL = 'https://www.instagram.com/reel/Cxyz123/';
 
 describe("this browser's inbox", () => {
   it('gets its code once, and keeps it', () => {
@@ -107,7 +107,7 @@ describe('collecting shared links', () => {
 
   it('saves each waiting link as a video, then tells the analyzer they were taken', async () => {
     waiting([
-      { id: 'one', url: `${REEL}?igsh=MTE2eXUz`, added_at: 1 },
+      { id: 'one', url: `${REEL}?igsh=abc123`, added_at: 1 },
       { id: 'two', url: 'https://youtube.com/shorts/abc123', added_at: 2 },
     ]);
 

@@ -11,7 +11,8 @@ service behind both.
 | [`server/`](server/README.md) | The analyzer: names the exercises in a video with a vision model, serves the web version, takes links shared from other apps, and sends finished workouts to Strava and Garmin Connect. |
 
 The two apps are separate programs and keep separate data; each talks to the analyzer on its own.
-Each folder's README covers building, running and testing that part.
+Each folder's README covers building, running and testing that part. What is planned next, and the
+ideas that are not decided yet, are in [`todo/`](todo/README.md).
 
 ## Quick start: the web version
 

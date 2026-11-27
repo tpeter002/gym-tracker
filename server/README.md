@@ -5,9 +5,14 @@ The one service behind both apps. It names the exercises in a saved workout vide
 finished workouts to Strava and Garmin Connect. It runs on your own computer; the phone reaches it
 over Wi-Fi.
 
+**It has no login.** Anyone who can reach it can use the model keys it holds, read what is waiting in
+an inbox, and post to the Strava and Garmin accounts connected to it — so run it only on a network you
+trust. What it does guard against is listed under [What it refuses](#what-it-refuses).
+
 - `analyzer.py` — the service itself: download, frames, the vision model.
 - `inbox.py` — links shared from other apps, waiting for the web version to collect them.
 - `connectors.py` — Strava and Garmin Connect.
+- `jsonstore.py` — the small JSON files the two above keep, written safely.
 - `stub_analyzer.py` — a stand-in with a canned answer, for testing the apps without a model.
 - `.env.example` — the settings, to copy to `.env`.
 
@@ -16,8 +21,7 @@ The commands below are run from the repository's root.
 ## Video analyzer
 
 `server/analyzer.py` downloads a clip with yt-dlp, samples frames with ffmpeg and asks a vision model
-— Claude unless you choose another — which exercises are in it. It runs on your Mac; the phone reaches
-it over Wi-Fi.
+— Claude unless you choose another — which exercises are in it.
 
 ```sh
 brew install ffmpeg uv                    # once
@@ -34,12 +38,14 @@ Videos saved while the Mac was out of reach are analyzed the next time you open 
 Wi-Fi. **Identify Again** on a video re-runs it and only offers suggestions, so exercises you removed
 stay removed.
 
-- Instagram usually refuses anonymous downloads. Start the analyzer with
-  `YTDLP_COOKIES_FROM_BROWSER=safari` (or `chrome`) to use the login from that browser.
-- `uv run server/analyzer.py --check <url>` tests just the download and frame steps, no AI call.
+- It works on one clip of up to 10 minutes and 300 MB: playlists, profiles and live streams are refused.
+- Instagram usually refuses anonymous downloads. `YTDLP_COOKIES_FROM_BROWSER=safari` (or `chrome`) in
+  `server/.env` lends the analyzer that browser's login; for Safari, the app the analyzer runs in
+  (Terminal) needs Full Disk Access.
+- `uv run server/analyzer.py --check <url>` tests just the download and frame steps, no AI call. It
+  leaves the frames in a temporary folder and prints where, so you can look at them.
 - Each analysis sends up to 24 frames to the model. With Claude Opus 5.5 that is, by a rough
   estimate, 5–10 cents per video; the free models below cost nothing but have daily limits.
-- The service has no authentication, so only run it on a network you trust.
 
 ### Choosing the model
 
@@ -48,48 +54,74 @@ The analyzer can ask Claude, [Z.ai](https://z.ai)'s GLM models, any image-readin
 `server/.env` (git ignores that file; `server/.env.example` is the template):
 
 ```sh
-ANTHROPIC_API_KEY=sk-ant-...    # Claude; claude-opus-5-5 unless ANALYZER_MODEL says otherwise
-ZAI_API_KEY=...                 # Z.ai; glm-4.6v-flash (free) by default
-OPENROUTER_API_KEY=sk-or-...    # OpenRouter; openrouter/free by default, which picks a free model
-GEMINI_API_KEY=AIza...          # Google AI Studio; gemini-3.8-flash by default, which has a free tier
+# Claude; claude-opus-5-5 unless ANALYZER_MODEL says otherwise
+ANTHROPIC_API_KEY=sk-ant-...
+# Z.ai; glm-4.6v-flash by default
+ZAI_API_KEY=...
+# OpenRouter; openrouter/free by default, which picks a free model
+OPENROUTER_API_KEY=sk-or-...
+# Google AI Studio; gemini-3.8-flash by default
+GEMINI_API_KEY=...
 
-ANALYZER_PROVIDER=zai           # anthropic, zai, openrouter or gemini — only needed with more than one key
-ANALYZER_MODEL=glm-5.3-flash    # optional: another model of that service
+# anthropic, zai, openrouter or gemini — only needed with more than one key
+ANALYZER_PROVIDER=zai
+# optional: another model of that service
+ANALYZER_MODEL=glm-5.3-flash
 ```
 
 With one key, that service is used; with several and no `ANALYZER_PROVIDER`, the first of them in the
 order above is. The line the analyzer prints at start-up says which model it will ask.
 
-What costs nothing, as of November 2026:
+Three of the four have something that costs nothing. The limits are the services' own and change;
+check them where you got the key.
 
-- **Gemini** — on the free tier each Flash model allows 5 requests a minute and 20 a day, each Flash-Lite
-  model 15 and 500 (as Google AI Studio showed for a new project on 26 November 2026; yours are under
-  "Rate limit" there). Requests answered with "high demand" count too, and the models take turns being
-  in high demand, so the analyzer asks each Flash model at most once per video, in order, until one
-  answers; the video shows which one did. Google uses free-tier requests to improve its products, and
-  its terms allow only the paid tier for apps offered to users in the EEA, Switzerland and the UK.
-- **OpenRouter** — models whose name ends in `:free`, and `openrouter/free`; 50 requests a day, 1,000 once
-  the account has ever bought $10 of credit.
-- **Z.ai** — `glm-4.6v-flash` is listed as free, but on the day this was written it answered every request
-  with "temporarily overloaded". The analyzer asks once more after a few seconds and then says so.
+- **Gemini** — the Flash models have a free daily allowance per model. A request that is turned away
+  for "high demand" still counts against it, so the analyzer asks each Flash model at most once per
+  video, in order, until one answers; the video shows which one did. Google uses free-tier requests to
+  improve its products, and its terms allow only the paid tier for apps offered to users in the EEA,
+  Switzerland and the UK.
+- **OpenRouter** — models whose name ends in `:free`, and `openrouter/free`, with a daily limit.
+- **Z.ai** — `glm-4.6v-flash` is listed as free. When a model is busy and the service offers no other,
+  the analyzer asks once more after a few seconds and then says so.
 
-The web version can also choose for itself, per browser: Settings → Video model sets the service and the
-model, and optionally a key of your own that is sent along with each video instead of the analyzer's.
-The iPhone app has no such setting and uses whatever the analyzer is set to. A saved video shows which
-model identified it.
+The web version can also choose for itself, per browser: Settings → Video model sets the service and
+the model, and optionally a key of your own that is sent along with each video instead of the
+analyzer's. The iPhone app has no such setting and uses whatever the analyzer is set to. A saved video
+shows which model identified it, and **Identify Again** makes comparing two models on your own videos
+a one-tap job — how well a given model names exercises is something only that shows.
 
-Gemini has been run for real on its free tier (26 November 2026): a one-exercise Instagram reel and a
-five-exercise YouTube video were both identified, in 40 seconds to 3½ minutes depending on which model
-had capacity. The Flash-Lite models named the reel's exercise wrongly, so they are offered but never
-used as a fallback. Z.ai and OpenRouter are covered by tests against their documented request and
-answer formats and were run as far as a made-up key gets (they refuse it, and the app says so); Z.ai's
-free model has not returned an analysis yet. How well a given model names exercises is something to try
-on your own videos — **Identify Again** makes that a one-tap comparison.
+### Other settings
+
+All go in `server/.env` (or the environment, which wins):
+
+| Setting | What it does |
+| :- | :- |
+| `PORT` | The port to listen on; 8787 unless set. |
+| `ALLOWED_HOSTS` | Extra names the service answers to, comma-separated (`*.example.net` covers subdomains) — for a tunnel or a tailnet name. IP addresses, `localhost` and `.local` names always work. |
+| `ALLOWED_ORIGINS` | Sites allowed to call in from a browser, comma-separated — only when the web version is hosted somewhere else. |
+| `ALLOW_LOCAL_VIDEO_LINKS` | Set to `1` to let video links point at this computer or the local network. |
+| `YTDLP_COOKIES_FROM_BROWSER` | `safari`, `chrome`, `firefox`… — see above. |
+| `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET` | Your Strava API application — see below. |
+
+`ZAI_BASE_URL`, `OPENROUTER_BASE_URL` and `GEMINI_BASE_URL` point a service's requests somewhere else;
+they exist for the tests.
+
+### What it refuses
+
+- **Requests under a name it doesn't go by.** A web page you happen to visit can't read this service's
+  answers — unless it points its own domain at your Mac, which is why a request whose `Host` is neither
+  an IP address, `localhost`, a `.local` name nor listed in `ALLOWED_HOSTS` gets a 421.
+- **Video links into the local network.** The service fetches what it is given, so a link to
+  `localhost`, a private address or the router is turned away unless `ALLOW_LOCAL_VIDEO_LINKS` is set.
+  A link that starts outside and redirects inside is not caught.
+- **Workouts that could not have happened** — dates before 1990, negative reps and the like — rather
+  than letting them crash the file written for Garmin.
 
 ## Links shared from other apps
 
 The web version can't be in the iPhone share sheet, so an iOS Shortcut posts the shared link here and
-the app picks it up when it is next open ([how to set that up](../web/README.md#sharing-from-instagram-tiktok-or-youtube)).
+the app picks it up when it is next open
+([how to set that up](../web/README.md#sharing-from-instagram-tiktok-or-youtube)).
 
 - `POST /inbox/<code>` — leaves a link. The body can be JSON (`{"url": "…"}` or `{"text": "…"}`), a
   form with the same fields, or plain text; the first web address in it is kept. Answers
@@ -98,8 +130,8 @@ the app picks it up when it is next open ([how to set that up](../web/README.md#
 - `POST /inbox/<code>/taken` with `{"ids": […]}` — the app has saved these; they are dropped.
 
 Each copy of the web app makes up its own code, so two browsers never empty each other's inbox. The
-links wait in `server/inbox.json` (not in git): at most 100 per inbox, for at most two months. As
-with the rest of the service there is no login — the code keeps inboxes apart, it doesn't guard them.
+links wait in `server/inbox.json` (not in git): at most 100 per inbox, for at most two months. The code
+keeps inboxes apart; it doesn't guard them.
 
 ## Sending workouts to Strava and Garmin Connect
 
@@ -137,6 +169,9 @@ You need an API application of your own (Strava requires a subscription to creat
    Strava → **Connect Strava**, and approve. A new application accepts only your own Strava account
    until you raise its athlete limit in Strava's dashboard.
 
+Strava's tokens and the list of what has been sent to either service live in `server/connections.json`
+(ignored by git).
+
 **Garmin Connect** has no official way for a personal project to add an activity: its developer
 programme is for approved businesses, and the personal API only reads. What this uses is the upload the
 Garmin Connect website itself has, reached with your own login through the unofficial
@@ -147,20 +182,23 @@ and is not stored. The workout is uploaded as a FIT file — a strength activity
 (exercise, reps, weight). The app doesn't record when each set was done, so the sets are spread evenly
 over the workout's duration.
 
-The tokens for both services and the list of what has been sent live in `server/connections.json`, also
-ignored by git. The analyzer has no login of its own, so anyone who can reach it on your network could
-post to these accounts through it: one more reason to run it only on a network you trust.
-
-Tested without either service: Strava against its documented requests and its real refusals, Garmin's
-library with a stand-in and one real sign-in with a made-up account (refused, as it should be), and the
-FIT files by reading them back with Garmin's own FIT SDK. Nothing has been posted to a real Strava or
-Garmin account yet, so how the sets appear in Garmin Connect is still to be seen.
-
 ## Tests
 
-- **Analyzer tests**: `uv run server/test_analyzer.py` — model choice, the requests sent to Claude, Z.ai
-  and OpenRouter, reading their answers and errors. They call no outside service.
-- **Connector tests**: `uv run server/test_connectors.py` — connecting, sending and not sending twice,
-  for Strava and Garmin Connect.
-- **Inbox tests**: `uv run server/test_inbox.py` — leaving, listing and taking shared links, and what
-  is refused.
+```sh
+uv run server/test_analyzer.py      # the video part and the service around it
+uv run server/test_connectors.py    # Strava and Garmin Connect
+uv run server/test_inbox.py         # links shared from other apps
+```
+
+They call no outside service: downloads and frames are replaced, Claude's client and the chat APIs of
+Z.ai, OpenRouter and Gemini are stand-ins that record what they are sent, Strava is an in-process
+stand-in, Garmin's library is a fake, and the FIT files are read back with Garmin's own FIT SDK.
+
+What has been run against the real thing, and what has not:
+
+- **Run:** the download and frame steps on YouTube and Instagram; Gemini on its free tier, which named
+  the exercises in a one-exercise Instagram reel and a five-exercise YouTube video (its Flash-Lite
+  models named the reel wrongly, so they are offered but never used as a fallback); Z.ai, OpenRouter,
+  Strava and Garmin as far as a made-up key or login gets, which each refuses as it should.
+- **Not yet:** an analysis by Z.ai's free model or by Claude with a real key; anything posted to a
+  real Strava or Garmin account, so how the sets appear in Garmin Connect is still to be seen.

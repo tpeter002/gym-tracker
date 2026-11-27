@@ -28,7 +28,14 @@ uv run server/analyzer.py                  # then open http://localhost:8787
 uv run server/test_analyzer.py             # the analyzer
 uv run server/test_connectors.py           # Strava and Garmin Connect
 uv run server/test_inbox.py                # links shared from other apps
-(cd web && npm test && npm run test:e2e)   # the web app: logic, then the built app in two browsers
+(cd web && npm test)                       # the web app's logic
+(cd web && npm run test:e2e)               # the built web app in two browsers
 ```
 
-The iPhone app's tests run in Xcode or the simulator; see [`ios/README.md`](ios/README.md#tests).
+The browser tests need Playwright's browsers once: `npx playwright install chromium webkit` in `web/`
+(more in [`web/README.md`](web/README.md#tests)). The iPhone app's tests run in Xcode or the simulator;
+see [`ios/README.md`](ios/README.md#tests).
+
+## License
+
+[Apache-2.0](LICENSE).

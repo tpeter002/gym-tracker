@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import stat
 import sys
+import threading
 import urllib.parse
 from pathlib import Path
 from types import SimpleNamespace
@@ -351,7 +352,8 @@ def test_what_strava_refuses_is_explained_and_not_counted_as_sent(service, strav
     strava.answers["/api/v3/activities"] = (status, body)
     response = export(service)
     assert (response.status_code, response.json()["detail"]) == (expected_status, expected)
-    assert "exports" not in json.loads(connectors.STORE.read_text()) if connectors.STORE.exists() else True
+    stored = json.loads(connectors.STORE.read_text()) if connectors.STORE.exists() else {}  # gone after a 401
+    assert "exports" not in stored
     # Once Strava takes it, the same request goes through.
     if status != 401:
         strava.answers["/api/v3/activities"] = (201, {"id": 5})
@@ -485,7 +487,11 @@ class GarminConnectTooManyRequestsError(Exception):
 
 
 class GarminConnectConnectionError(Exception):
-    pass
+    """Like the library's: `response` is Garmin's answer when the error stands for one."""
+
+    def __init__(self, message: str, response: httpx.Response | None = None) -> None:
+        super().__init__(message)
+        self.response = response
 
 
 class Garmin:
@@ -575,7 +581,7 @@ def test_a_wrong_password_connects_nothing(service, garmin):
 def test_garmin_limiting_sign_ins_is_said_plainly(service, garmin):
     garmin.login_error = GarminConnectTooManyRequestsError("429")
     response = connect_garmin(service)
-    assert (response.status_code, response.json()["detail"]) == (429, "Garmin is limiting sign-ins from here right now; try again in an hour.")
+    assert (response.status_code, response.json()["detail"]) == (429, "Garmin is limiting requests from here right now; try again in an hour.")
 
 
 def test_a_verification_code_finishes_the_sign_in(service, garmin):
@@ -685,6 +691,51 @@ def test_garmin_out_of_reach_or_busy_keeps_the_connection(service, garmin):
     assert service.get("/connections").json()["garmin"]["connected"] is True
 
 
+def garmin_said(status: int, body: object = None) -> GarminConnectConnectionError:
+    """The error the library raises for any answer of 400 and up."""
+    answer = httpx.Response(status, json=body) if body is not None else httpx.Response(status, text="")
+    return GarminConnectConnectionError(f"HTTP {status}", response=answer)
+
+
+def test_garmin_saying_no_is_not_garmin_being_out_of_reach(service, garmin):
+    connect_garmin(service)
+    # The library calls every error status a connection error; a request Garmin refuses will never go through.
+    garmin.upload_error = garmin_said(400)
+    response = export(service, "garmin")
+    assert (response.status_code, response.json()["detail"]) == (422, "Garmin Connect refused the request (400: HTTP 400).")
+    for status, expected in ((500, 502), (503, 502), (408, 502), (429, 429)):  # these do pass by themselves
+        garmin.upload_error = garmin_said(status)
+        assert export(service, "garmin").status_code == expected
+    assert service.get("/connections").json()["garmin"]["connected"] is True
+    # Nothing was counted as sent along the way.
+    garmin.upload_error = None
+    assert export(service, "garmin").json()["already"] is False
+
+
+def test_garmin_refusing_the_login_on_an_upload_asks_to_connect_again(service, garmin):
+    connect_garmin(service)
+    garmin.upload_error = garmin_said(401)
+    response = export(service, "garmin")
+    assert response.status_code == 401
+    assert "Garmin no longer accepts the saved login" in response.json()["detail"]
+    assert service.get("/connections").json()["garmin"]["connected"] is False
+
+
+def test_a_workout_garmin_already_has_counts_as_sent_even_when_garmin_says_so_with_an_error(service, garmin):
+    connect_garmin(service)
+    duplicate = {"detailedImportResult": {"successes": [], "failures": [
+        {"internalId": 555001, "messages": [{"code": 202, "content": "Duplicate Activity."}]}]}}
+    garmin.upload_error = garmin_said(409, duplicate)
+    response = export(service, "garmin")
+    assert response.status_code == 200
+    assert response.json()["id"] == "555001"
+    # A refusal that explains itself is passed on in Garmin's words, and is final.
+    garmin.upload_error = garmin_said(409, {"detailedImportResult": {"successes": [], "failures": [
+        {"messages": [{"content": "The file is corrupt."}]}]}})
+    refused = export(service, "garmin", workout={**WORKOUT, "id": "workout-2"})
+    assert (refused.status_code, refused.json()["detail"]) == (422, "Garmin didn't take the workout (The file is corrupt.).")
+
+
 def test_a_failed_title_does_not_undo_a_successful_upload(service, garmin, monkeypatch):
     connect_garmin(service)
     original = garmin.new_client
@@ -696,6 +747,78 @@ def test_a_failed_title_does_not_undo_a_successful_upload(service, garmin, monke
 
     monkeypatch.setattr(connectors, "new_garmin", flaky)
     assert export(service, "garmin").json()["id"] == "555001"
+
+
+# --- many requests at once, and requests that make no sense ----------------------
+
+def test_requests_arriving_together_lose_nothing_from_the_store():
+    problems: list[Exception] = []
+
+    def remember(worker: int) -> None:
+        try:
+            for number in range(25):
+                connectors.remember_sent(f"workout-{worker}-{number}", "strava", {"id": str(number)})
+        except Exception as problem:  # whatever goes wrong here is what the test is about
+            problems.append(problem)
+
+    workers = [threading.Thread(target=remember, args=(worker,)) for worker in range(8)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+
+    assert problems == []
+    assert len(connectors.load_store()["exports"]) == 8 * 25
+    assert [path.name for path in connectors.STORE.parent.iterdir()] == ["connections.json"]  # no half-written files left
+    assert stat.S_IMODE(connectors.STORE.stat().st_mode) == 0o600
+
+
+def test_the_same_workout_asked_for_twice_at_once_is_posted_once(service, strava):
+    connect_strava(service)
+    strava_may_answer = threading.Event()
+    arrived = [threading.Event(), threading.Event()]  # the first post to reach Strava, and a second one
+    answer = strava.handle
+
+    def slow(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v3/activities":
+            arrived[1 if arrived[0].is_set() else 0].set()
+            assert strava_may_answer.wait(5)
+        return answer(request)
+
+    strava.handle = slow  # the stand-in looks its handler up for every request
+    answers: list[dict] = []
+    # The app's retry after its own timeout, while the first request is still with Strava.
+    requests = [threading.Thread(target=lambda: answers.append(export(service).json())) for _ in range(2)]
+    requests[0].start()
+    assert arrived[0].wait(5)
+    requests[1].start()
+    # Given every chance to, the second request does not reach Strava while the first is there.
+    assert not arrived[1].wait(0.5)
+    strava_may_answer.set()
+    for request in requests:
+        request.join()
+
+    assert strava.paths().count("/api/v3/activities") == 1
+    assert sorted(answer["already"] for answer in answers) == [False, True]
+    assert {answer["id"] for answer in answers} == {"987654321"}
+
+
+@pytest.mark.parametrize("change", [
+    {"started_at": 10 ** 18}, {"ended_at": 10 ** 18}, {"started_at": 0}, {"started_at": -5},
+    {"utc_offset_minutes": 10 ** 9}, {"utc_offset_minutes": -900},
+    {"exercises": [{"name": "Bench Press (Barbell)", "sets": [{"weight": -40, "reps": 5}]}]},
+    {"exercises": [{"name": "Bench Press (Barbell)", "sets": [{"weight": 40, "reps": -5}]}]},
+    {"exercises": [{"name": "Bench Press (Barbell)", "sets": [{"weight": 1e9, "reps": 5}]}]},
+    {"exercises": [{"name": "Bench Press (Barbell)", "sets": [{"weight": 40, "reps": 5, "rpe": 11}]}]},
+])
+def test_a_workout_with_impossible_numbers_is_refused_for_good_not_retried_for_ever(service, strava, garmin, change):
+    connect_strava(service)
+    connect_garmin(service)
+    for target in ("strava", "garmin"):
+        # 422 is "this will never go through"; a 500 would have the app try again on every visit.
+        assert export(service, target, workout={**WORKOUT, **change}).status_code == 422
+    assert "/api/v3/activities" not in strava.paths()
+    assert garmin.uploads == []
 
 
 def test_a_damaged_store_file_reads_as_nothing_connected(service):

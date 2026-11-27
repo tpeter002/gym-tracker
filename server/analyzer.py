@@ -23,6 +23,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import ipaddress
 import re
 import shutil
 import socket
@@ -30,6 +31,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
+from collections.abc import MutableMapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,19 +40,21 @@ import anthropic
 import httpx
 import uvicorn
 import yt_dlp
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import connectors
 import inbox
 
-PORT = int(os.environ.get("PORT", "8787"))
+DEFAULT_PORT = 8787
 MODEL_TIMEOUT = 200  # seconds for the model's answer; the apps give a whole analysis 240
 # Seconds before a busy model is asked one more time, when there is no other model to ask.
 RETRY_WAIT = 5
 MAX_VIDEO_SECONDS = 10 * 60  # this is for reels and shorts, not full workout vlogs
+MAX_VIDEO_BYTES = 300 * 1024 * 1024  # what bounds a link that doesn't say how long it is
 MAX_FRAMES = 24
 MIN_FRAME_INTERVAL = 1.5  # seconds; denser sampling adds cost without adding exercises
 WEB_APP = Path(__file__).resolve().parent.parent / "web" / "dist"
@@ -84,7 +89,6 @@ RESULT_SCHEMA = {
     "required": ["exercises"],
     "additionalProperties": False,
 }
-
 
 
 @dataclass(frozen=True)
@@ -210,7 +214,15 @@ class AnalyzeRequest(BaseModel):
     api_key: str | None = Field(default=None, repr=False)
 
 
-def load_env_file() -> None:
+def env_value(raw: str) -> str:
+    """The value of a KEY=value line: without its quotes, or without a "# note" that follows it."""
+    value = raw.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1]
+    return re.split(r"\s+#", value, maxsplit=1)[0].strip().strip("\"'")
+
+
+def load_env_file(environ: MutableMapping[str, str] = os.environ) -> None:
     """Reads KEY=value lines from server/.env so the API key doesn't have to be exported."""
     env_path = Path(__file__).with_name(".env")
     if not env_path.exists():
@@ -218,7 +230,43 @@ def load_env_file() -> None:
     for line in env_path.read_text().splitlines():
         key, separator, value = line.strip().partition("=")
         if separator and key and not key.startswith("#"):
-            os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+            environ.setdefault(key.strip(), env_value(value))
+
+
+class VideoError(Exception):
+    """Why a link can't be turned into frames, as a sentence for the person, with the HTTP status to answer with."""
+
+    def __init__(self, status: int, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+        self.message = message
+
+
+ANSI_COLOUR = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def plain(message: object) -> str:
+    """A downloader or ffmpeg message fit to show: no terminal colours, no "ERROR:" in front, not a page long."""
+    return ANSI_COLOUR.sub("", str(message)).strip().removeprefix("ERROR:").strip()[:200]
+
+
+def addresses_of(host: str) -> set[str]:
+    """The addresses a host name stands for; none when it can't be looked up."""
+    try:
+        return {str(found[4][0]).split("%")[0] for found in socket.getaddrinfo(host, None)}
+    except (OSError, UnicodeError):
+        return set()
+
+
+def points_inside(url: str) -> bool:
+    """Whether a link leads to this computer or the network around it rather than out to a video site.
+
+    The service fetches whatever it is given, so without this any page that can
+    reach it could have it read the router's admin page, or anything else that
+    only answers on the inside.
+    """
+    host = urllib.parse.urlsplit(url).hostname or ""
+    return any(not ipaddress.ip_address(address).is_global for address in addresses_of(host))
 
 
 def download(url: str, workdir: Path) -> tuple[Path, dict]:
@@ -228,6 +276,9 @@ def download(url: str, workdir: Path) -> tuple[Path, dict]:
         "no_warnings": True,
         "noprogress": True,
         "noplaylist": True,
+        "color": "no_color",  # its messages end up in the app, not in a terminal
+        "socket_timeout": 30,
+        "max_filesize": MAX_VIDEO_BYTES,
         "outtmpl": str(workdir / "video.%(ext)s"),
         "format": "bv*[height<=720]/b[height<=720]/bv*/b",
     }
@@ -238,26 +289,35 @@ def download(url: str, workdir: Path) -> tuple[Path, dict]:
         options["cookiesfrombrowser"] = (browser,)
 
     with yt_dlp.YoutubeDL(options) as ydl:
-        info = ydl.extract_info(url, download=False)
+        info = ydl.extract_info(url, download=False) or {}
+        # Neither of these has a length to check, and both could download for hours.
+        if info.get("_type") == "playlist" or info.get("entries"):
+            raise VideoError(422, "That link is a playlist or a profile; this needs the link of one video.")
+        if info.get("is_live"):
+            raise VideoError(422, "That is a live stream; this works on clips that have ended.")
         duration = info.get("duration")
         if duration and duration > MAX_VIDEO_SECONDS:
             length = f"{int(duration // 60)}:{int(duration % 60):02d}"
-            raise ValueError(f"That video is {length} long; this works on short clips "
-                             f"(up to {MAX_VIDEO_SECONDS // 60} minutes).")
+            raise VideoError(422, f"That video is {length} long; this works on short clips "
+                                  f"(up to {MAX_VIDEO_SECONDS // 60} minutes).")
         ydl.download([url])
 
     files = [path for path in workdir.glob("video.*") if path.suffix != ".part"]
     if not files:
-        raise RuntimeError("The download finished but produced no video file.")
+        raise VideoError(502, "The download produced no video file — the clip may be larger than "
+                              f"{MAX_VIDEO_BYTES // (1024 * 1024)} MB.")
     return files[0], info
 
 
 def probe_duration(video: Path) -> float:
     output = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(video)],
-        capture_output=True, text=True, check=True,
+        capture_output=True, text=True, check=True, timeout=60,
     ).stdout.strip()
-    return float(output)
+    try:
+        return float(output)
+    except ValueError:  # "N/A" for a file with no stated length
+        raise VideoError(502, "Couldn't tell how long the video is.") from None
 
 
 def extract_frames(video: Path, workdir: Path) -> list[tuple[float, Path]]:
@@ -268,9 +328,9 @@ def extract_frames(video: Path, workdir: Path) -> list[tuple[float, Path]]:
     frames_dir.mkdir()
     scale = "scale=w='if(gt(iw,ih),min(768,iw),-2)':h='if(gt(iw,ih),-2,min(768,ih))'"
     subprocess.run(
-        ["ffmpeg", "-v", "error", "-i", str(video), "-vf", f"fps=1/{interval:.3f},{scale}",
+        ["ffmpeg", "-nostdin", "-v", "error", "-i", str(video), "-vf", f"fps=1/{interval:.3f},{scale}",
          "-q:v", "4", "-frames:v", str(MAX_FRAMES), str(frames_dir / "%03d.jpg")],
-        capture_output=True, text=True, check=True,
+        capture_output=True, text=True, check=True, timeout=180,
     )
     frames = sorted(frames_dir.glob("*.jpg"))
     # The fps filter emits one frame per interval, taken near the interval's midpoint.
@@ -290,10 +350,10 @@ def thumbnail(frames: list[tuple[float, Path]], workdir: Path) -> str | None:
     target = workdir / "thumbnail.jpg"
     try:
         subprocess.run(
-            ["ffmpeg", "-v", "error", "-i", str(source), "-vf", "scale=w='min(320,iw)':h=-2", "-q:v", "6", str(target)],
-            capture_output=True, text=True, check=True,
+            ["ffmpeg", "-nostdin", "-v", "error", "-i", str(source), "-vf", "scale=w='min(320,iw)':h=-2", "-q:v", "6", str(target)],
+            capture_output=True, text=True, check=True, timeout=30,
         )
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return None
     return "data:image/jpeg;base64," + base64.standard_b64encode(target.read_bytes()).decode("ascii")
 
@@ -325,6 +385,8 @@ def choose_model(provider_id: str | None = None, model: str | None = None, api_k
         raise ModelError(422, "That model name has characters a model name can't have.")
     if not model and provider is fallback:
         model = os.environ.get("ANALYZER_MODEL", "").strip()
+        if model and not MODEL_NAME.fullmatch(model):
+            raise ModelError(500, "ANALYZER_MODEL in server/.env has characters a model name can't have.")
     own_key = (api_key or "").strip()
     return ModelChoice(
         provider=provider,
@@ -336,7 +398,7 @@ def choose_model(provider_id: str | None = None, model: str | None = None, api_k
 
 
 def base_url(provider: Provider) -> str:
-    """The chat API's address; ZAI_BASE_URL / OPENROUTER_BASE_URL in server/.env override it."""
+    """The chat API's address; ZAI_BASE_URL, OPENROUTER_BASE_URL or GEMINI_BASE_URL overrides it (the tests' way in)."""
     return (os.environ.get(f"{provider.id.upper()}_BASE_URL", "").strip() or provider.base_url or "").rstrip("/")
 
 
@@ -398,7 +460,9 @@ def ask_claude(choice: ModelChoice, frames: list[tuple[float, Path]], info: dict
     label = choice.provider.label
     try:
         # With the analyzer's own key the SDK finds it (or another login) itself.
-        client = anthropic.Anthropic(api_key=choice.api_key) if choice.own_key else anthropic.Anthropic()
+        # The SDK's own patience (ten minutes, two more tries) outlasts the apps', which give up after four.
+        patience = {"timeout": MODEL_TIMEOUT, "max_retries": 1}
+        client = anthropic.Anthropic(api_key=choice.api_key, **patience) if choice.own_key else anthropic.Anthropic(**patience)
         response = client.beta.messages.create(**request)
     except TypeError as error:
         # With no credentials at all the SDK raises a bare TypeError while building the request.
@@ -411,18 +475,22 @@ def ask_claude(choice: ModelChoice, frames: list[tuple[float, Path]], info: dict
         raise ModelError(429, f"{label}'s rate limit was hit; try again in a minute.") from error
     except anthropic.APIStatusError as error:
         raise ModelError(502, f"The AI request failed ({error.status_code}): {error.message[:200]}") from error
+    except anthropic.APITimeoutError as error:  # a kind of connection error, so it has to come first
+        raise ModelError(504, f"{label} took too long to answer; try again, or pick a faster model.") from error
     except anthropic.APIConnectionError as error:
         raise ModelError(502, f"The analyzer couldn't reach {label}'s API.") from error
     if response.stop_reason == "refusal":
         raise ModelError(502, "The model declined to analyze this video.")
     if response.stop_reason == "max_tokens":
         raise ModelError(502, "The model's answer was cut off; try again.")
-    text = next(block.text for block in response.content if block.type == "text")
+    text = next((block.text for block in response.content if block.type == "text"), "")
+    if not text.strip():
+        raise ModelError(502, "The model returned an empty answer; try again, or pick another model.")
     return text, getattr(response, "model", None) or choice.model
 
 
 def chat_request(choice: ModelChoice, frames: list[tuple[float, Path]], info: dict, known: list[str]) -> dict:
-    """The same question in the OpenAI chat format that Z.ai and OpenRouter both speak."""
+    """The same question in the OpenAI chat format that Z.ai, OpenRouter and Gemini all speak."""
     # Text first, then the images: OpenRouter's advice for how providers parse the parts.
     content: list[dict] = [{"type": "text", "text": describe_video(info, known)}]
     for seconds, path in frames:
@@ -464,7 +532,7 @@ def chat_error(choice: ModelChoice, status: int, error: object) -> ModelError:
     label = choice.provider.label
     code, detail = "", ""
     if isinstance(error, dict):
-        code = str(error.get("code") or "")
+        code = error_code(error)
         detail = error.get("message") if isinstance(error.get("message"), str) else ""
     elif isinstance(error, str):
         detail = error
@@ -566,9 +634,14 @@ def ask_chat_api(choice: ModelChoice, frames: list[tuple[float, Path]], info: di
                 break  # no time left for another answer within what the apps wait for
             if not spares:
                 time.sleep(RETRY_WAIT)
-        status, data, first, error = chat_attempt(choice, model, body, deadline)
-        if status < 400 and not error:
-            return chat_text(model, data, first)
+        try:
+            status, data, first, error = chat_attempt(choice, model, body, deadline)
+            if status < 400 and not error:
+                return chat_text(model, data, first)
+        except ModelError:
+            if model == choice.model:
+                raise
+            continue  # a stand-in that times out or answers nothing is passed over like one that says no
         if model == choice.model:
             failure = chat_error(choice, status, error)
             out_of_quota = failure.status == 429
@@ -647,6 +720,45 @@ def identify_exercises(choice: ModelChoice, frames: list[tuple[float, Path]], in
 
 
 app = FastAPI(title="Gym Tracker video analyzer")
+
+
+def host_allowed(host: str) -> bool:
+    """Whether a request names this service the way its owner would: by an IP address, as localhost,
+    by a .local name, or by a name listed in ALLOWED_HOSTS (comma-separated; "*.example.net" covers subdomains)."""
+    name = host.strip().lower()
+    if name.startswith("["):  # [::1]:8787
+        name = name[1:].split("]", 1)[0]
+    elif name.count(":") == 1:
+        name = name.split(":", 1)[0]
+    name = name.rstrip(".")
+    try:
+        ipaddress.ip_address(name)
+        return True
+    except ValueError:
+        pass
+    if name == "localhost" or name.endswith((".local", ".localhost")):
+        return True
+    listed = [item.strip().lower() for item in os.environ.get("ALLOWED_HOSTS", "").split(",") if item.strip()]
+    return any(name == item or (item.startswith("*.") and name.endswith(item[1:])) for item in listed)
+
+
+@app.middleware("http")
+async def only_under_its_own_name(request: Request, call_next):
+    """Turns away requests that arrive under somebody else's domain.
+
+    There is no login, so the one thing between a web page the owner happens to
+    visit and this service is the browser's same-origin rule. A page can get
+    round that by pointing its own domain at this machine (DNS rebinding) — but
+    then its requests carry that domain as their Host, and stop here.
+    """
+    host = request.headers.get("host", "")
+    if not host_allowed(host):
+        return JSONResponse(status_code=421, content={"detail": (
+            f"This analyzer doesn't go by the name “{host[:100]}”. Use its IP address or .local name, "
+            "or add the name to ALLOWED_HOSTS in server/.env.")})
+    return await call_next(request)
+
+
 # Sending finished workouts to Strava and Garmin Connect lives in connectors.py.
 app.include_router(connectors.router)
 # Links shared from other apps on a phone wait in inbox.py until the web app collects them.
@@ -733,6 +845,8 @@ def models(provider: str) -> dict:
 def analyze(request: AnalyzeRequest) -> dict:
     if not request.url.lower().startswith(("http://", "https://")):
         raise HTTPException(422, "That isn't a web link.")
+    if points_inside(request.url) and not os.environ.get("ALLOW_LOCAL_VIDEO_LINKS", "").strip():
+        raise HTTPException(422, "That link leads into the local network, not to a video site.")
     try:
         choice = choose_model(request.provider, request.model, request.api_key)
         if choice.provider.base_url and not choice.api_key:
@@ -743,18 +857,22 @@ def analyze(request: AnalyzeRequest) -> dict:
     try:
         try:
             video, info = download(request.url, workdir)
-        except ValueError as error:
-            raise HTTPException(422, str(error))
-        except yt_dlp.utils.DownloadError as error:
-            hint = ""
-            if "instagram" in request.url and not os.environ.get("YTDLP_COOKIES_FROM_BROWSER"):
-                hint = " Instagram usually needs a login: start the analyzer with YTDLP_COOKIES_FROM_BROWSER=safari (or chrome)."
-            raise HTTPException(502, f"Couldn't download the video.{hint} ({str(error)[:200]})")
-
-        try:
             frames = extract_frames(video, workdir)
+        except VideoError as error:
+            raise HTTPException(error.status, error.message)
+        except yt_dlp.utils.YoutubeDLError as error:
+            browser = os.environ.get("YTDLP_COOKIES_FROM_BROWSER")
+            hint = ""
+            if "cookie" in type(error).__name__.lower():
+                hint = (f" The login couldn't be borrowed from {browser or 'the browser'}: for Safari, the app the "
+                        "analyzer runs in (Terminal) needs Full Disk Access in System Settings.")
+            elif "instagram" in request.url and not browser:
+                hint = " Instagram usually needs a login: start the analyzer with YTDLP_COOKIES_FROM_BROWSER=safari (or chrome)."
+            raise HTTPException(502, f"Couldn't download the video.{hint} ({plain(error)})")
         except subprocess.CalledProcessError as error:
-            raise HTTPException(502, f"Couldn't read the video file. ({(error.stderr or '')[:200]})")
+            raise HTTPException(502, f"Couldn't read the video file. ({plain(error.stderr or '')})")
+        except subprocess.TimeoutExpired:
+            raise HTTPException(502, "Reading the video file took too long.")
         if not frames:
             raise HTTPException(502, "The video had no frames to look at.")
 
@@ -828,8 +946,10 @@ def serve_web_app() -> bool:
     # there: a comma-separated list such as https://me.github.io
     origins = [origin.strip() for origin in os.environ.get("ALLOWED_ORIGINS", "").split(",") if origin.strip()]
     if origins:
+        # X-Needs-Code is how the Garmin sign-in says "now the verification code"; a page
+        # on another origin can only read the headers named here.
         app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"],
-                           allow_headers=["Content-Type"])
+                           allow_headers=["Content-Type"], expose_headers=["X-Needs-Code"])
     if not WEB_APP.is_dir():
         return False
     app.mount("/", StaticFiles(directory=WEB_APP, html=True), name="web")
@@ -844,13 +964,14 @@ if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--check":
         check(sys.argv[2])
     else:
-        print(f"Gym Tracker analyzer — in the app's Settings enter: http://{bonjour_name()}:{PORT}")
+        port = int(os.environ.get("PORT", DEFAULT_PORT))  # read here, so PORT in server/.env counts too
+        print(f"Gym Tracker analyzer — in the app's Settings enter: http://{bonjour_name()}:{port}")
         address = lan_address()
         if address:
-            print(f"(if the phone can't find that name, use http://{address}:{PORT} — it can change when the Mac reconnects)")
+            print(f"(if the phone can't find that name, use http://{address}:{port} — it can change when the Mac reconnects)")
         print(f"Model: {describe_model()}")
         if serve_web_app():
-            print(f"Web version: http://localhost:{PORT} on this Mac, or the address above from another device")
+            print(f"Web version: http://localhost:{port} on this Mac, or the address above from another device")
         else:
             print("Web version: not built yet — run `npm install && npm run build` in web/, then restart")
-        uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")
+        uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")

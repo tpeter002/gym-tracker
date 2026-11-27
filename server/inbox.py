@@ -14,16 +14,17 @@ inboxes of different browsers apart.
 from __future__ import annotations
 
 import json
-import os
 import re
 import secrets
-import threading
 import time
 import urllib.parse
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
+
+import jsonstore
 
 STORE = Path(__file__).with_name("inbox.json")
 
@@ -35,8 +36,9 @@ MAX_WAITING = 100  # links in one inbox; beyond that the oldest give way
 MAX_INBOXES = 200
 KEEP_SECONDS = 60 * 24 * 3600  # a link nobody collected in two months is dropped
 
+TOO_MUCH = "That is too much text for a shared link."
+
 router = APIRouter()
-_lock = threading.Lock()  # one request at a time reads, changes and writes the file
 
 
 class Taken(BaseModel):
@@ -48,21 +50,12 @@ def now() -> float:
 
 
 def load_store() -> dict[str, list[dict]]:
-    try:
-        data = json.loads(STORE.read_text())
-    except (OSError, ValueError):
-        return {}
-    if not isinstance(data, dict):
-        return {}
     return {code: [item for item in items if isinstance(item, dict)]
-            for code, items in data.items() if isinstance(items, list)}
+            for code, items in jsonstore.read(STORE).items() if isinstance(items, list)}
 
 
 def save_store(data: dict[str, list[dict]]) -> None:
-    temporary = STORE.with_suffix(".tmp")
-    temporary.write_text(json.dumps(data, indent=2))
-    os.chmod(temporary, 0o600)
-    temporary.replace(STORE)
+    jsonstore.write(STORE, data)
 
 
 def added_at(item: dict) -> float:
@@ -130,13 +123,23 @@ def listing(items: list[dict]) -> dict:
 async def add(code: str, request: Request) -> dict:
     """Leaves a link for the copy of the app that owns this inbox."""
     check(code)
+    # Turned away by its announced size where there is one, before any of it is read.
+    announced = request.headers.get("content-length", "")
+    if announced.isdigit() and int(announced) > MAX_BODY:
+        raise HTTPException(413, TOO_MUCH)
     body = await request.body()
     if len(body) > MAX_BODY:
-        raise HTTPException(413, "That is too much text for a shared link.")
+        raise HTTPException(413, TOO_MUCH)
     link = first_link(shared_text(body, request.headers.get("content-type", "")))
     if not link:
         raise HTTPException(422, "There is no link in what was shared.")
-    with _lock:
+    # This handler is async only to read the raw body; the file work waits on a
+    # lock and the disk, so it goes to the thread pool like every other handler.
+    return await run_in_threadpool(keep, code, link)
+
+
+def keep(code: str, link: str) -> dict:
+    with jsonstore.lock:
         data = tidy(load_store())
         waiting = data.get(code, [])
         if not any(item.get("url") == link for item in waiting):
@@ -150,7 +153,7 @@ async def add(code: str, request: Request) -> dict:
 def waiting_links(code: str) -> dict:
     """The links waiting for this copy of the app, oldest first."""
     check(code)
-    with _lock:
+    with jsonstore.lock:
         return listing(tidy(load_store()).get(code, []))
 
 
@@ -159,7 +162,7 @@ def taken(code: str, request: Taken) -> dict:
     """The app has saved these links; they needn't be kept any longer."""
     check(code)
     gone = set(request.ids)
-    with _lock:
+    with jsonstore.lock:
         data = tidy(load_store())
         left = [item for item in data.get(code, []) if item.get("id") not in gone]
         data[code] = left

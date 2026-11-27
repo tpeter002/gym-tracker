@@ -20,11 +20,11 @@ ios/ShareExtension/ShareExtension.entitlements
 .venv/
 # Tokens for Strava and Garmin Connect, and the list of workouts already sent
 server/connections.json
-server/connections.tmp
 server/garmin-tokens/
 # Links shared from other apps, waiting for the web app
 server/inbox.json
-server/inbox.tmp
+# A store file on its way to replacing one of the two above
+server/*.tmp
 __pycache__/
 .pytest_cache/
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import stat
 import sys
-from pathlib import Path
+import threading
 
 import pytest
 from fastapi import FastAPI
@@ -234,9 +234,31 @@ def test_a_damaged_file_reads_as_empty_inboxes_and_is_usable_again(service, cont
     assert urls(service) == [REEL]
 
 
-def test_the_analyzer_service_offers_the_inbox():
-    analyzer = Path(inbox.__file__).with_name("analyzer.py").read_text()
-    assert "app.include_router(inbox.router)" in analyzer
+def test_a_post_that_announces_too_much_is_refused_by_its_announcement(service):
+    answer = service.post(f"/inbox/{MINE}", content=REEL, headers={"Content-Length": str(inbox.MAX_BODY + 1)})
+    assert (answer.status_code, answer.json()["detail"]) == (413, "That is too much text for a shared link.")
+    assert urls(service) == []
+
+
+def test_links_shared_at_the_same_moment_all_arrive():
+    problems: list[Exception] = []
+
+    def share(worker: int) -> None:
+        try:
+            for number in range(10):
+                inbox.keep(MINE, f"https://example.com/clip/{worker}-{number}")
+        except Exception as problem:  # whatever goes wrong here is what the test is about
+            problems.append(problem)
+
+    workers = [threading.Thread(target=share, args=(worker,)) for worker in range(8)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+
+    assert problems == []
+    assert len(inbox.load_store()[MINE]) == 80
+    assert [path.name for path in inbox.STORE.parent.iterdir()] == ["inbox.json"]  # no half-written files left
 
 
 if __name__ == "__main__":

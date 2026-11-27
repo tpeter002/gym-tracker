@@ -7,15 +7,18 @@
     uv run server/test_analyzer.py            # all of them
     uv run server/test_analyzer.py -k zai     # the ones with "zai" in their name
 
-Nothing here downloads a video or calls a model: the download and frame steps
-are replaced, Claude's SDK client is a stand-in, and the Z.ai / OpenRouter
-requests go to an in-process transport that records them.
+Nothing here downloads a video, calls a model or looks a host name up: the
+download and frame steps are replaced, Claude's SDK client is a stand-in, the
+requests to the chat APIs (Z.ai, OpenRouter, Gemini) go to an in-process
+transport that records them, and every host name resolves to a made-up
+public address.
 """
 
 from __future__ import annotations
 
 import base64
 import json
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,9 +26,12 @@ from types import SimpleNamespace
 import anthropic
 import httpx
 import pytest
+import yt_dlp
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import analyzer
+import inbox
 
 KNOWN = ["Face Pull (Cable)", "Pull Up"]
 INFO = {"title": "3 cable moves", "description": "Save this for pull day"}
@@ -43,7 +49,11 @@ EXERCISES = [
      "equipment": "cable", "notes": None, "sets_reps": None},
 ]
 SETTINGS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ZAI_API_KEY", "OPENROUTER_API_KEY", "GEMINI_API_KEY",
-            "ANALYZER_PROVIDER", "ANALYZER_MODEL", "ZAI_BASE_URL", "OPENROUTER_BASE_URL", "GEMINI_BASE_URL"]
+            "ANALYZER_PROVIDER", "ANALYZER_MODEL", "ZAI_BASE_URL", "OPENROUTER_BASE_URL", "GEMINI_BASE_URL",
+            "ALLOWED_HOSTS", "ALLOWED_ORIGINS", "ALLOW_LOCAL_VIDEO_LINKS", "YTDLP_COOKIES_FROM_BROWSER"]
+PUBLIC_ADDRESS = "8.8.8.8"  # only ever compared, never contacted; the ranges reserved for examples count as non-public
+# How the Claude client is built whoever's key it uses: no more patient than the apps are.
+PATIENCE = {"timeout": analyzer.MODEL_TIMEOUT, "max_retries": 1}
 
 
 def b64(data: bytes) -> str:
@@ -56,6 +66,8 @@ def clean_settings(monkeypatch):
     for name in SETTINGS:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(analyzer, "_openrouter_models", None)
+    # Every host is "somewhere on the internet" unless a test says otherwise; no test asks a real name server.
+    monkeypatch.setattr(analyzer, "addresses_of", lambda host: {PUBLIC_ADDRESS})
 
 
 @pytest.fixture
@@ -71,7 +83,7 @@ def frames(tmp_path) -> list[tuple[float, Path]]:
 class FakeClaude:
     """Stands in for anthropic.Anthropic: records how it was built and what it was asked."""
 
-    def __init__(self, answer: str = ANSWER, error: Exception | None = None, stop_reason: str = "end_turn",
+    def __init__(self, answer: str | None = ANSWER, error: Exception | None = None, stop_reason: str = "end_turn",
                  model: str | None = None) -> None:
         self.answer, self.error, self.stop_reason, self.model = answer, error, stop_reason, model
         self.built_with: dict | None = None
@@ -86,8 +98,10 @@ class FakeClaude:
         self.request = request
         if self.error:
             raise self.error
-        return SimpleNamespace(stop_reason=self.stop_reason, model=self.model or request["model"],
-                               content=[SimpleNamespace(type="thinking"), SimpleNamespace(type="text", text=self.answer)])
+        content = [SimpleNamespace(type="thinking")]
+        if self.answer is not None:  # None: an answer with no text in it at all
+            content.append(SimpleNamespace(type="text", text=self.answer))
+        return SimpleNamespace(stop_reason=self.stop_reason, model=self.model or request["model"], content=content)
 
 
 @pytest.fixture
@@ -154,7 +168,8 @@ def service(monkeypatch, frames) -> TestClient:
     monkeypatch.setattr(analyzer, "download", lambda url, workdir: (workdir / "video.mp4", dict(INFO)))
     monkeypatch.setattr(analyzer, "extract_frames", lambda video, workdir: frames)
     monkeypatch.setattr(analyzer, "thumbnail", lambda found, workdir: "data:image/jpeg;base64,AAAA")
-    return TestClient(analyzer.app)
+    # Under the name the owner uses; anything else is turned away (see the host tests).
+    return TestClient(analyzer.app, base_url="http://localhost:8787")
 
 
 def post(service: TestClient, **extra) -> httpx.Response:
@@ -285,7 +300,7 @@ def test_the_request_to_claude_is_what_it_was_before_models_were_selectable(clau
     exercises, answered_by = analyzer.identify_exercises(analyzer.choose_model(), frames, INFO, KNOWN)
     assert exercises == EXERCISES
     assert answered_by == "claude-opus-5-5"
-    assert claude.built_with == {}  # the SDK finds the key in the environment itself
+    assert claude.built_with == PATIENCE  # no key: the SDK finds it in the environment itself
     assert claude.request == {
         "model": "claude-opus-5-5",
         "max_tokens": 16000,
@@ -308,7 +323,7 @@ def test_another_claude_model_and_your_own_key(claude, frames):
     choice = analyzer.choose_model("anthropic", "claude-haiku-5-5", "sk-ant-mine")
     _, answered_by = analyzer.identify_exercises(choice, frames, INFO, KNOWN)
     assert answered_by == "claude-haiku-5-5"
-    assert claude.built_with == {"api_key": "sk-ant-mine"}
+    assert claude.built_with == {"api_key": "sk-ant-mine", **PATIENCE}
     assert claude.request["model"] == "claude-haiku-5-5"
     # Haiku has no server-side fallback, so the request must not ask for one.
     assert "betas" not in claude.request and "fallbacks" not in claude.request
@@ -340,11 +355,22 @@ def claude_error(kind, status: int) -> Exception:
     (claude_error(anthropic.BadRequestError, 400), 502, "The AI request failed (400): upstream said no"),
     (anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")), 502,
      "The analyzer couldn't reach Anthropic's API."),
+    # A timeout is a kind of connection error to the SDK; it must not be reported as "couldn't reach".
+    (anthropic.APITimeoutError(request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")), 504,
+     "Anthropic took too long to answer; try again, or pick a faster model."),
 ])
 def test_claude_failures_keep_their_messages(monkeypatch, service, error, status, message):
     monkeypatch.setattr(analyzer.anthropic, "Anthropic", FakeClaude(error=error))
     response = post(service)
     assert (response.status_code, response.json()["detail"]) == (status, message)
+
+
+@pytest.mark.parametrize("answer", [None, "", "  \n"])
+def test_a_claude_answer_with_no_text_in_it_is_an_empty_answer_not_a_crash(monkeypatch, service, answer):
+    monkeypatch.setattr(analyzer.anthropic, "Anthropic", FakeClaude(answer=answer))
+    response = post(service)
+    assert (response.status_code, response.json()["detail"]) == (
+        502, "The model returned an empty answer; try again, or pick another model.")
 
 
 @pytest.mark.parametrize("stop_reason, message", [
@@ -514,6 +540,35 @@ def test_when_every_model_is_busy_the_chosen_ones_failure_is_reported(chat, fram
              "(This model is currently experiencing high demand.) The models tried in its place didn't answer either.")
     assert chat.models_asked == GEMINI_FLASH  # one request per model, and no more
     assert waits == []
+
+
+@pytest.mark.parametrize("stand_in_answer", [
+    (200, ChatAPI.completion("")),                              # answers, but with nothing in it
+    (200, ChatAPI.completion("half an ans", "length")),         # cut off
+    (200, ChatAPI.completion("no", "content_filter")),          # declines
+])
+def test_a_stand_in_that_answers_badly_is_passed_over_like_one_that_says_no(chat, frames, stand_in_answer):
+    chat.by_model = {"gemini-3.8-flash": GEMINI_BUSY, "gemini-3-flash-preview": stand_in_answer}
+    exercises, answered_by = gemini(frames)
+    assert (exercises, answered_by) == (EXERCISES, "gemini-4-hydrogen")
+    assert chat.models_asked == ["gemini-3.8-flash", "gemini-3-flash-preview", "gemini-4-hydrogen"]
+
+
+def test_when_the_stand_ins_only_fail_in_their_own_ways_the_chosen_models_failure_is_reported(chat, frames):
+    empty = (200, ChatAPI.completion(""))
+    chat.by_model = {"gemini-3.8-flash": GEMINI_BUSY, "gemini-3-flash-preview": empty,
+                     "gemini-4-hydrogen": empty, "gemini-3.6-flash": empty}
+    failure = chat_failure(chat, frames, "gemini")
+    assert failure.status == 503
+    assert failure.message.startswith("Google says gemini-3.8-flash is overloaded right now")
+    assert chat.models_asked == GEMINI_FLASH
+
+
+def test_the_chosen_models_own_bad_answer_is_still_reported_as_it_was(chat, frames):
+    chat.by_model = {"gemini-3.8-flash": (200, ChatAPI.completion(""))}
+    failure = chat_failure(chat, frames, "gemini")
+    assert (failure.status, failure.message) == (502, "The model returned an empty answer; try again, or pick another model.")
+    assert chat.models_asked == ["gemini-3.8-flash"]  # a model that answers is not second-guessed
 
 
 def test_a_chosen_model_outside_the_fallback_list_is_still_asked_first(chat, frames, waits):
@@ -775,10 +830,13 @@ def test_the_older_refusals_are_unchanged(service, claude):
     assert service.post("/analyze", json={}).status_code == 422
 
 
-def test_a_model_error_still_cleans_up_and_reports(service, chat):
+def test_a_model_error_still_cleans_up_and_reports(monkeypatch, tmp_path, service, chat):
+    workdir = tmp_path / "work"
+    monkeypatch.setattr(analyzer.tempfile, "mkdtemp", lambda prefix="": (workdir.mkdir(), str(workdir))[1])
     chat.reply = chat.completion("no idea, sorry")
     response = post(service, provider="openrouter", api_key="k")
     assert (response.status_code, response.json()["detail"]) == (502, analyzer.UNREADABLE_ANSWER)
+    assert not workdir.exists()  # the downloaded video and its frames are gone
 
 
 def test_health_still_says_ok_and_now_lists_the_services(monkeypatch, service):
@@ -870,7 +928,7 @@ def test_the_service_also_answers_for_the_strava_and_garmin_connections(monkeypa
     assert sorted(body) == ["garmin", "strava"]
     assert body["strava"]["connected"] is False
     # Not connected: the request is understood and refused, rather than unknown.
-    response = service.post("/exports/strava", json={"workout": {"id": "w", "started_at": 1, "ended_at": 2}})
+    response = service.post("/exports/strava", json={"workout": {"id": "w", "started_at": 1_795_712_400_000, "ended_at": 1_795_712_460_000}})
     assert response.status_code == 409
 
 
@@ -882,14 +940,338 @@ def test_the_start_up_line_names_the_model(monkeypatch):
     assert "ANALYZER_PROVIDER" in analyzer.describe_model()
 
 
-def test_the_env_file_is_read_without_overriding_what_is_already_set(monkeypatch, tmp_path):
-    (tmp_path / ".env").write_text("# keys\nZAI_API_KEY='from-file'\nANALYZER_MODEL = glm-5.3-flash \nnot a setting\n")
+def read_env_file(monkeypatch, tmp_path, text: str, already: dict | None = None) -> dict:
+    """What load_env_file makes of a server/.env holding `text`, in an environment of its own."""
+    (tmp_path / ".env").write_text(text)
     monkeypatch.setattr(analyzer, "__file__", str(tmp_path / "analyzer.py"))
-    monkeypatch.setenv("ANALYZER_MODEL", "already-set")
-    analyzer.load_env_file()
-    monkeypatch.setenv("ZAI_API_KEY", analyzer.os.environ["ZAI_API_KEY"])  # so the fixture removes it again
-    assert analyzer.os.environ["ZAI_API_KEY"] == "from-file"
-    assert analyzer.os.environ["ANALYZER_MODEL"] == "already-set"
+    environ = dict(already or {})
+    analyzer.load_env_file(environ)
+    return environ
+
+
+def test_the_env_file_is_read_without_overriding_what_is_already_set(monkeypatch, tmp_path):
+    text = "# keys\nZAI_API_KEY='from-file'\nANALYZER_MODEL = glm-5.3-flash \nnot a setting\n"
+    assert read_env_file(monkeypatch, tmp_path, text, {"ANALYZER_MODEL": "already-set"}) == {
+        "ZAI_API_KEY": "from-file", "ANALYZER_MODEL": "already-set"}
+    assert read_env_file(monkeypatch, tmp_path, text)["ANALYZER_MODEL"] == "glm-5.3-flash"
+    assert "ZAI_API_KEY" not in analyzer.os.environ  # reading into a dict of its own left the real environment alone
+
+
+def test_a_note_after_a_value_in_the_env_file_is_not_part_of_the_value(monkeypatch, tmp_path):
+    text = (
+        "ANALYZER_PROVIDER=zai           # anthropic, zai, openrouter or gemini\n"
+        "ZAI_API_KEY=abc123\t# from z.ai\n"
+        "ANALYZER_MODEL='glm # five'   \n"       # quoted: the hash is part of the value
+        "OPENROUTER_API_KEY=sk#or-1\n"            # no space before the hash: part of the value
+        'GEMINI_API_KEY="AIza-x" # the free tier\n'
+        "PORT=\n"
+    )
+    assert read_env_file(monkeypatch, tmp_path, text) == {
+        "ANALYZER_PROVIDER": "zai", "ZAI_API_KEY": "abc123", "ANALYZER_MODEL": "glm # five",
+        "OPENROUTER_API_KEY": "sk#or-1", "GEMINI_API_KEY": "AIza-x", "PORT": "",
+    }
+
+
+def test_a_missing_env_file_changes_nothing(monkeypatch, tmp_path):
+    monkeypatch.setattr(analyzer, "__file__", str(tmp_path / "analyzer.py"))
+    environ: dict = {}
+    analyzer.load_env_file(environ)
+    assert environ == {}
+
+
+def test_a_model_name_from_the_env_file_is_checked_like_one_from_the_app(monkeypatch):
+    monkeypatch.setenv("ANALYZER_MODEL", "two words")
+    with pytest.raises(analyzer.ModelError) as refused:
+        analyzer.choose_model()
+    assert (refused.value.status, refused.value.message) == (
+        500, "ANALYZER_MODEL in server/.env has characters a model name can't have.")
+    # It only matters for the service it is meant for.
+    assert analyzer.choose_model("zai", "glm-5.3-flash", "k").model == "glm-5.3-flash"
+
+
+# --- turning a link into frames ---------------------------------------------------
+
+class Downloader:
+    """Stands in for yt_dlp.YoutubeDL: says what `info` says about the link and writes `files` when asked to download."""
+
+    def __init__(self, info: dict | None, files: tuple[str, ...] = ("video.mp4",)) -> None:
+        self.info, self.files = info, files
+        self.options: dict = {}
+        self.downloaded: list[str] = []
+
+    def __call__(self, options: dict) -> "Downloader":
+        self.options = options
+        return self
+
+    def __enter__(self) -> "Downloader":
+        return self
+
+    def __exit__(self, *problem) -> bool:
+        return False
+
+    def extract_info(self, url: str, download: bool = True) -> dict | None:
+        assert download is False
+        return self.info
+
+    def download(self, urls: list[str]) -> None:
+        self.downloaded += urls
+        for name in self.files:
+            (Path(self.options["outtmpl"]).parent / name).write_bytes(b"video")
+
+
+def test_a_clip_is_downloaded_with_limits_on_time_and_size(monkeypatch, tmp_path):
+    downloader = Downloader({"title": "Leg day", "duration": 45})
+    monkeypatch.setattr(analyzer.yt_dlp, "YoutubeDL", downloader)
+    video, info = analyzer.download("https://youtube.com/shorts/abc", tmp_path)
+    assert (video, info["title"]) == (tmp_path / "video.mp4", "Leg day")
+    assert downloader.downloaded == ["https://youtube.com/shorts/abc"]
+    assert downloader.options["max_filesize"] == analyzer.MAX_VIDEO_BYTES
+    assert downloader.options["socket_timeout"] == 30
+    assert downloader.options["noplaylist"] is True
+    assert downloader.options["color"] == "no_color"  # its messages are shown in the app
+    assert "cookiesfrombrowser" not in downloader.options
+
+
+def test_the_browser_login_is_borrowed_only_when_asked_for(monkeypatch, tmp_path):
+    downloader = Downloader({"duration": 45})
+    monkeypatch.setattr(analyzer.yt_dlp, "YoutubeDL", downloader)
+    monkeypatch.setenv("YTDLP_COOKIES_FROM_BROWSER", "safari")
+    analyzer.download("https://www.instagram.com/reel/Cxyz123/", tmp_path)
+    assert downloader.options["cookiesfrombrowser"] == ("safari",)
+
+
+@pytest.mark.parametrize("info, message", [
+    ({"duration": 601}, "That video is 10:01 long; this works on short clips (up to 10 minutes)."),
+    ({"duration": 3725.4}, "That video is 62:05 long; this works on short clips (up to 10 minutes)."),
+    ({"is_live": True}, "That is a live stream; this works on clips that have ended."),
+    ({"_type": "playlist", "entries": []}, "That link is a playlist or a profile; this needs the link of one video."),
+    ({"entries": [{"id": "a"}, {"id": "b"}]}, "That link is a playlist or a profile; this needs the link of one video."),
+])
+def test_what_is_not_one_short_clip_is_refused_before_anything_is_downloaded(monkeypatch, tmp_path, info, message):
+    downloader = Downloader(info)
+    monkeypatch.setattr(analyzer.yt_dlp, "YoutubeDL", downloader)
+    with pytest.raises(analyzer.VideoError) as refused:
+        analyzer.download("https://youtube.com/watch?v=abc", tmp_path)
+    assert (refused.value.status, refused.value.message) == (422, message)
+    assert downloader.downloaded == []
+
+
+def test_a_clip_of_exactly_ten_minutes_or_of_unknown_length_is_taken(monkeypatch, tmp_path):
+    for info in ({"duration": 600}, {}, None):
+        downloader = Downloader(info)
+        monkeypatch.setattr(analyzer.yt_dlp, "YoutubeDL", downloader)
+        analyzer.download("https://example.org/clip.mp4", tmp_path)
+        assert len(downloader.downloaded) == 1
+
+
+def test_a_download_that_leaves_no_file_says_so(monkeypatch, tmp_path):
+    for files in ((), ("video.mp4.part",)):  # nothing at all, or only a part cut off by the size limit
+        monkeypatch.setattr(analyzer.yt_dlp, "YoutubeDL", Downloader({"duration": 30}, files=files))
+        with pytest.raises(analyzer.VideoError) as failed:
+            analyzer.download("https://example.org/huge.mp4", tmp_path)
+        assert (failed.value.status, failed.value.message) == (
+            502, "The download produced no video file — the clip may be larger than 300 MB.")
+
+
+def test_a_video_whose_length_cannot_be_read_is_an_error_in_words(monkeypatch, tmp_path):
+    ran: list[dict] = []
+
+    def ffprobe(command, **options):
+        ran.append(options)
+        return SimpleNamespace(stdout="N/A\n")
+
+    monkeypatch.setattr(analyzer.subprocess, "run", ffprobe)
+    with pytest.raises(analyzer.VideoError) as failed:
+        analyzer.probe_duration(tmp_path / "video.mp4")
+    assert (failed.value.status, failed.value.message) == (502, "Couldn't tell how long the video is.")
+    assert ran[0]["timeout"] == 60  # and it is never waited on for ever
+
+
+def test_the_frame_step_cannot_hang_or_wait_for_the_keyboard(monkeypatch, tmp_path):
+    commands: list[tuple[list[str], dict]] = []
+
+    def run(command, **options):
+        commands.append((command, options))
+        return SimpleNamespace(stdout="12.0\n")
+
+    monkeypatch.setattr(analyzer.subprocess, "run", run)
+    analyzer.extract_frames(tmp_path / "video.mp4", tmp_path)
+    ffmpeg, options = commands[-1]
+    assert ffmpeg[:2] == ["ffmpeg", "-nostdin"]
+    assert options["timeout"] == 180
+
+
+def test_messages_from_the_downloader_are_made_fit_to_show():
+    assert analyzer.plain("\x1b[0;31mERROR:\x1b[0m [Instagram] Cxyz: login required") == "[Instagram] Cxyz: login required"
+    assert analyzer.plain("ERROR: Unsupported URL") == "Unsupported URL"
+    assert analyzer.plain("  plain words  ") == "plain words"
+    assert len(analyzer.plain("x" * 500)) == 200
+
+
+def failing_download(monkeypatch, error: Exception) -> None:
+    def download(url, workdir):
+        raise error
+    monkeypatch.setattr(analyzer, "download", download)
+
+
+def test_a_refused_clip_is_reported_in_the_services_own_words(monkeypatch, service):
+    failing_download(monkeypatch, analyzer.VideoError(422, "That is a live stream; this works on clips that have ended."))
+    response = post(service)
+    assert (response.status_code, response.json()["detail"]) == (422, "That is a live stream; this works on clips that have ended.")
+
+
+def test_a_failed_download_is_reported_without_terminal_colours(monkeypatch, service):
+    failing_download(monkeypatch, yt_dlp.utils.DownloadError("\x1b[0;31mERROR:\x1b[0m [youtube] abc: Video unavailable"))
+    response = post(service)
+    assert (response.status_code, response.json()["detail"]) == (
+        502, "Couldn't download the video. ([youtube] abc: Video unavailable)")
+
+
+def test_an_instagram_failure_without_a_login_says_how_to_lend_one(monkeypatch, service):
+    failing_download(monkeypatch, yt_dlp.utils.DownloadError("ERROR: [Instagram] Cxyz123: login required"))
+    link = "https://www.instagram.com/reel/Cxyz123/"
+    detail = post(service, url=link).json()["detail"]
+    assert "start the analyzer with YTDLP_COOKIES_FROM_BROWSER=safari (or chrome)" in detail
+    monkeypatch.setenv("YTDLP_COOKIES_FROM_BROWSER", "safari")
+    assert "YTDLP_COOKIES_FROM_BROWSER" not in post(service, url=link).json()["detail"]
+
+
+def test_cookies_that_cannot_be_read_are_a_502_with_the_way_out_not_a_bare_500(monkeypatch, service):
+    class CookieLoadError(yt_dlp.utils.YoutubeDLError):  # what yt-dlp raises; not a DownloadError
+        pass
+
+    monkeypatch.setenv("YTDLP_COOKIES_FROM_BROWSER", "safari")
+    failing_download(monkeypatch, CookieLoadError("failed to load cookies"))
+    response = post(service, url="https://www.instagram.com/reel/Cxyz123/")
+    assert response.status_code == 502
+    assert "couldn't be borrowed from safari" in response.json()["detail"]
+    assert "Full Disk Access" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("error, detail", [
+    (subprocess.CalledProcessError(1, "ffmpeg", stderr="\x1b[31mmoov atom not found\x1b[0m"), "Couldn't read the video file. (moov atom not found)"),
+    (subprocess.TimeoutExpired("ffmpeg", 180), "Reading the video file took too long."),
+    (analyzer.VideoError(502, "Couldn't tell how long the video is."), "Couldn't tell how long the video is."),
+])
+def test_a_video_that_cannot_be_read_is_reported_and_cleaned_up(monkeypatch, tmp_path, service, error, detail):
+    workdir = tmp_path / "work"
+    monkeypatch.setattr(analyzer.tempfile, "mkdtemp", lambda prefix="": (workdir.mkdir(), str(workdir))[1])
+
+    def extract_frames(video, folder):
+        raise error
+    monkeypatch.setattr(analyzer, "extract_frames", extract_frames)
+    response = post(service)
+    assert (response.status_code, response.json()["detail"]) == (502, detail)
+    assert not workdir.exists()
+
+
+# --- what a caller may point the service at ---------------------------------------
+
+@pytest.mark.parametrize("addresses, inside", [
+    ({"8.8.8.8"}, False), ({"2001:4860:4860::8888"}, False),
+    ({"127.0.0.1"}, True), ({"::1"}, True), ({"192.168.1.1"}, True), ({"10.0.0.5"}, True), ({"172.20.3.4"}, True),
+    ({"169.254.169.254"}, True),  # link-local, where cloud machines keep their credentials
+    ({"100.100.20.3"}, True),     # carrier-grade NAT, which is also what Tailscale hands out
+    ({"fe80::1"}, True), ({"fd12:3456::1"}, True),
+    ({"8.8.8.8", "192.168.1.1"}, True),  # one inside address among them is enough
+    (set(), False),  # a name that can't be looked up: the download will say so itself
+])
+def test_which_links_lead_into_the_local_network(monkeypatch, addresses, inside):
+    monkeypatch.setattr(analyzer, "addresses_of", lambda host: addresses)
+    assert analyzer.points_inside("https://videos.example.org/clip") is inside
+
+
+def test_the_host_of_a_link_is_what_gets_looked_up(monkeypatch):
+    asked: list[str] = []
+    monkeypatch.setattr(analyzer, "addresses_of", lambda host: asked.append(host) or {PUBLIC_ADDRESS})
+    analyzer.points_inside("https://user:secret@Videos.Example.org:8443/clip?x=http://192.168.1.1/")
+    assert asked == ["videos.example.org"]
+
+
+def test_literal_addresses_need_no_lookup(monkeypatch):
+    monkeypatch.undo()  # the real resolver: literal addresses never leave the machine
+    assert analyzer.addresses_of("127.0.0.1") == {"127.0.0.1"}
+    assert analyzer.addresses_of("192.168.1.20") == {"192.168.1.20"}
+    assert analyzer.points_inside("http://127.0.0.1:8080/admin") is True
+    assert analyzer.points_inside("http://[::1]/admin") is True
+    assert analyzer.points_inside("http://192.168.1.1/") is True
+    assert analyzer.points_inside("http://8.8.8.8/clip.mp4") is False
+    assert analyzer.points_inside("http://203.0.113.7/clip.mp4") is True  # a documentation range: not a place videos live
+
+
+def test_a_link_into_the_local_network_is_refused_before_anything_is_fetched(monkeypatch, service):
+    monkeypatch.setattr(analyzer, "addresses_of", lambda host: {"192.168.1.1"})
+    monkeypatch.setattr(analyzer, "download", lambda url, workdir: pytest.fail("fetched anyway"))
+    response = post(service, url="http://router.home/status")
+    assert (response.status_code, response.json()["detail"]) == (
+        422, "That link leads into the local network, not to a video site.")
+
+
+def test_local_links_can_be_allowed_on_purpose(monkeypatch, service, claude):
+    monkeypatch.setattr(analyzer, "addresses_of", lambda host: {"192.168.1.50"})
+    monkeypatch.setenv("ALLOW_LOCAL_VIDEO_LINKS", "1")
+    assert post(service, url="http://nas.home/clips/squat.mp4").status_code == 200
+
+
+@pytest.mark.parametrize("host, allowed", [
+    ("localhost", True), ("localhost:8787", True), ("LOCALHOST:8787", True),
+    ("192.168.1.237:8787", True), ("127.0.0.1", True), ("[::1]:8787", True), ("[fe80::1]", True), ("100.100.20.3:8787", True),
+    ("my-mac.local:8787", True), ("My-Mac.local.", True), ("app.localhost:8787", True),
+    ("evil.example:8787", False), ("192.168.1.237.evil.example", False), ("localhost.evil.example", False),
+    ("notlocal:8787", False), ("", False), ("mac.tailnet.ts.net", False),
+])
+def test_which_names_the_service_answers_to(host, allowed):
+    assert analyzer.host_allowed(host) is allowed
+
+
+def test_more_names_can_be_listed_for_a_tunnel_or_a_tailnet(monkeypatch):
+    monkeypatch.setenv("ALLOWED_HOSTS", " mac.tailnet.ts.net , *.trycloudflare.com ")
+    assert analyzer.host_allowed("mac.tailnet.ts.net:443") is True
+    assert analyzer.host_allowed("quiet-river.trycloudflare.com") is True
+    assert analyzer.host_allowed("trycloudflare.com") is False  # the wildcard is for names under it
+    assert analyzer.host_allowed("other.tailnet.ts.net") is False
+    assert analyzer.host_allowed("eviltrycloudflare.com") is False
+
+
+def test_a_request_under_a_strangers_domain_is_turned_away_whatever_it_asks_for(monkeypatch, service):
+    monkeypatch.setattr(analyzer, "download", lambda url, workdir: pytest.fail("served a stranger"))
+    stranger = {"Host": "rebind.evil.example:8787"}
+    for response in (service.get("/health", headers=stranger),
+                     service.post("/analyze", json={"url": "https://youtube.com/shorts/abc"}, headers=stranger),
+                     service.post("/strava/disconnect", headers=stranger),
+                     service.get("/inbox/a1b2c3d4e5f6a7b8", headers=stranger)):
+        assert response.status_code == 421
+        assert "doesn't go by the name “rebind.evil.example:8787”" in response.json()["detail"]
+        assert "ALLOWED_HOSTS" in response.json()["detail"]
+    assert service.get("/health", headers={"Host": "my-mac.local:8787"}).status_code == 200
+    assert service.get("/health", headers={"Host": "192.168.1.237:8787"}).status_code == 200
+
+
+def test_a_web_app_hosted_elsewhere_can_read_the_garmin_code_header(monkeypatch, tmp_path):
+    hosted = FastAPI()
+
+    @hosted.post("/garmin/connect")
+    def needs_code() -> dict:
+        raise analyzer.HTTPException(409, "Enter the code.", headers={"X-Needs-Code": "1"})
+
+    monkeypatch.setattr(analyzer, "app", hosted)
+    monkeypatch.setattr(analyzer, "WEB_APP", tmp_path / "not-built")
+    monkeypatch.setenv("ALLOWED_ORIGINS", "https://me.example, https://other.example")
+    assert analyzer.serve_web_app() is False  # nothing built to serve; the cross-origin rules still apply
+
+    response = TestClient(hosted).post("/garmin/connect", headers={"Origin": "https://me.example"})
+    assert response.headers["x-needs-code"] == "1"
+    assert response.headers["access-control-allow-origin"] == "https://me.example"
+    assert response.headers["access-control-expose-headers"] == "X-Needs-Code"
+    stranger = TestClient(hosted).post("/garmin/connect", headers={"Origin": "https://evil.example"})
+    assert "access-control-allow-origin" not in stranger.headers
+
+
+def test_the_service_also_takes_links_shared_from_other_apps(monkeypatch, tmp_path, service):
+    monkeypatch.setattr(inbox, "STORE", tmp_path / "inbox.json")
+    code = "a1b2c3d4e5f6a7b8"
+    assert service.post(f"/inbox/{code}", json={"url": "https://www.instagram.com/reel/Cxyz123/"}).json()["saved"] is True
+    assert [link["url"] for link in service.get(f"/inbox/{code}").json()["links"]] == ["https://www.instagram.com/reel/Cxyz123/"]
 
 
 if __name__ == "__main__":

@@ -22,12 +22,12 @@ The password is used once to obtain tokens and is not stored.
 from __future__ import annotations
 
 import datetime
-import json
 import os
 import re
 import secrets
 import shutil
 import tempfile
+import threading
 import time
 import zlib
 from pathlib import Path
@@ -37,6 +37,8 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
+
+import jsonstore
 
 STORE = Path(__file__).with_name("connections.json")
 GARMIN_TOKENS = Path(__file__).with_name("garmin-tokens")
@@ -50,17 +52,23 @@ LB_PER_KG = 2.2046226218
 FIT_EPOCH = 631065600  # seconds between 1970-01-01 and the FIT format's 1989-12-31
 CONNECT_AGAIN = "connect again in the app under Settings → Connections"
 
-Target = Literal["strava", "garmin"]
+# Bounds on what a workout may claim: beyond them it is not a workout but a way to crash the FIT writer.
+EARLIEST = FIT_EPOCH * 1000  # milliseconds; the FIT format can't say anything earlier
+LATEST = 4_102_444_800_000  # 2100-01-01
 
 router = APIRouter()
+# One workout at a time per service: checking whether it was sent, sending it and
+# remembering that have to be one step, or two requests for the same workout —
+# the app retrying while the first is still on its way — would both post it.
+_sending = {"strava": threading.Lock(), "garmin": threading.Lock()}
 
 
 # --- what the app sends -------------------------------------------------------
 
 class SetIn(BaseModel):
-    weight: float | None = None  # kilograms; None for a bodyweight set
-    reps: int | None = None
-    rpe: float | None = None
+    weight: float | None = Field(default=None, ge=0, le=5000)  # kilograms; None for a bodyweight set
+    reps: int | None = Field(default=None, ge=0, le=100_000)
+    rpe: float | None = Field(default=None, ge=0, le=10)
     warmup: bool = False
 
 
@@ -73,9 +81,9 @@ class ExerciseIn(BaseModel):
 class WorkoutIn(BaseModel):
     id: str = Field(min_length=1, max_length=100)
     name: str = Field(default="", max_length=200)
-    started_at: int  # milliseconds since 1970, like every time in the app
-    ended_at: int
-    utc_offset_minutes: int = 0  # local time minus UTC where the workout was logged
+    started_at: int = Field(ge=EARLIEST, le=LATEST)  # milliseconds since 1970, like every time in the app
+    ended_at: int = Field(ge=EARLIEST, le=LATEST)
+    utc_offset_minutes: int = Field(default=0, ge=-14 * 60, le=14 * 60)  # local time minus UTC where it was logged
     notes: str = Field(default="", max_length=5000)
     exercises: list[ExerciseIn] = Field(default_factory=list, max_length=100)
 
@@ -94,20 +102,15 @@ class GarminLogin(BaseModel):
 
 # --- what is kept on disk -----------------------------------------------------
 
+# Every change is read, made and written back while holding jsonstore.lock.
+
 def load_store() -> dict:
-    try:
-        data = json.loads(STORE.read_text())
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    return jsonstore.read(STORE)
 
 
 def save_store(data: dict) -> None:
     """Writes the tokens and the list of sent workouts, readable by the owner only."""
-    temporary = STORE.with_suffix(".tmp")
-    temporary.write_text(json.dumps(data, indent=2))
-    os.chmod(temporary, 0o600)
-    temporary.replace(STORE)
+    jsonstore.write(STORE, data)
 
 
 def sent_before(workout_id: str, target: str) -> dict | None:
@@ -116,9 +119,10 @@ def sent_before(workout_id: str, target: str) -> dict | None:
 
 
 def remember_sent(workout_id: str, target: str, result: dict) -> None:
-    store = load_store()
-    store.setdefault("exports", {}).setdefault(workout_id, {})[target] = result
-    save_store(store)
+    with jsonstore.lock:
+        store = load_store()
+        store.setdefault("exports", {}).setdefault(workout_id, {})[target] = result
+        save_store(store)
 
 
 def http_client() -> httpx.Client:
@@ -218,9 +222,10 @@ def strava_message(response: httpx.Response) -> str:
 
 
 def forget_strava() -> None:
-    store = load_store()
-    if store.pop("strava", None) is not None:
-        save_store(store)
+    with jsonstore.lock:
+        store = load_store()
+        if store.pop("strava", None) is not None:
+            save_store(store)
 
 
 def strava_tokens(grant: dict) -> dict:
@@ -249,11 +254,12 @@ def strava_access_token() -> str:
     if saved.get("access_token") and saved.get("expires_at", 0) - time.time() > 60:
         return saved["access_token"]
     fresh = strava_tokens({"grant_type": "refresh_token", "refresh_token": saved["refresh_token"]})
-    store = load_store()
-    # Strava may hand out a new refresh token with any refresh; the old one then stops working.
-    store["strava"] = {**saved, "access_token": fresh["access_token"], "expires_at": fresh["expires_at"],
-                       "refresh_token": fresh.get("refresh_token") or saved["refresh_token"]}
-    save_store(store)
+    with jsonstore.lock:
+        store = load_store()
+        # Strava may hand out a new refresh token with any refresh; the old one then stops working.
+        store["strava"] = {**saved, "access_token": fresh["access_token"], "expires_at": fresh["expires_at"],
+                           "refresh_token": fresh.get("refresh_token") or saved["refresh_token"]}
+        save_store(store)
     return fresh["access_token"]
 
 
@@ -332,10 +338,11 @@ def strava_callback(state: str = "", code: str = "", scope: str = "", error: str
     tokens = strava_tokens({"grant_type": "authorization_code", "code": code})
     athlete = tokens.get("athlete") if isinstance(tokens.get("athlete"), dict) else {}
     name = " ".join(part for part in (athlete.get("firstname"), athlete.get("lastname")) if part) or "Strava athlete"
-    store = load_store()
-    store["strava"] = {"account": name, "access_token": tokens["access_token"],
-                       "refresh_token": tokens["refresh_token"], "expires_at": tokens["expires_at"]}
-    save_store(store)
+    with jsonstore.lock:
+        store = load_store()
+        store["strava"] = {"account": name, "access_token": tokens["access_token"],
+                           "refresh_token": tokens["refresh_token"], "expires_at": tokens["expires_at"]}
+        save_store(store)
     return return_with("connected")
 
 
@@ -363,13 +370,24 @@ def new_garmin(email: str | None = None, password: str | None = None) -> Any:
     return Garmin(email, password, return_on_mfa=True)
 
 
+def garmin_status(error: Exception) -> int | None:
+    """The HTTP status behind one of the library's errors, when it wraps an answer from Garmin."""
+    status = getattr(getattr(error, "response", None), "status_code", None)
+    return status if isinstance(status, int) else None
+
+
 def garmin_failure(error: Exception) -> HTTPException:
     """Turns the library's errors into what to tell the person."""
     kind = type(error).__name__
-    if "TooManyRequests" in kind:
-        return HTTPException(429, "Garmin is limiting sign-ins from here right now; try again in an hour.")
-    if "Authentication" in kind:
+    status = garmin_status(error)
+    if "TooManyRequests" in kind or status == 429:
+        return HTTPException(429, "Garmin is limiting requests from here right now; try again in an hour.")
+    if "Authentication" in kind or status in (401, 403):
         return HTTPException(401, f"Garmin didn't accept the login ({str(error)[:150]}).")
+    # The library reports every answer of 400 and up as a "connection" error. Garmin
+    # saying no to this request is not Garmin being out of reach: trying again won't help.
+    if status is not None and 400 <= status < 500 and status != 408:
+        return HTTPException(422, f"Garmin Connect refused the request ({status}: {str(error)[:150]}).")
     if "Connection" in kind:
         return HTTPException(502, f"Garmin Connect couldn't be reached ({str(error)[:150]}).")
     return HTTPException(502, f"Garmin Connect failed ({kind}: {str(error)[:150]}).")
@@ -389,9 +407,10 @@ def keep_garmin_login(client: Any) -> dict:
             name = session.get_full_name()
         except Exception:
             name = None
-    store = load_store()
-    store["garmin"] = {"account": name or "Garmin account"}
-    save_store(store)
+    with jsonstore.lock:
+        store = load_store()
+        store["garmin"] = {"account": name or "Garmin account"}
+        save_store(store)
     return connections()
 
 
@@ -413,9 +432,10 @@ def garmin_session() -> Any:
 
 def forget_garmin() -> None:
     shutil.rmtree(GARMIN_TOKENS, ignore_errors=True)
-    store = load_store()
-    if store.pop("garmin", None) is not None:
-        save_store(store)
+    with jsonstore.lock:
+        store = load_store()
+        if store.pop("garmin", None) is not None:
+            save_store(store)
 
 
 @router.post("/garmin/connect")
@@ -461,7 +481,7 @@ GARMIN_CATEGORIES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("leg raise", "knee raise", "toes to bar"), "LEG_RAISE"),
     (("hip thrust", "glute bridge", "hip raise", "glute kickback", "frog pump", "pull through"), "HIP_RAISE"),
     (("hyperextension", "back extension", "good morning"), "HYPEREXTENSION"),
-    (("kettlebell swing", "swing"), "HIP_SWING"),
+    (("swing",), "HIP_SWING"),
     (("lunge", "split squat", "step up"), "LUNGE"),
     (("clean", "snatch", "jerk", "thruster"), "OLYMPIC_LIFT"),
     (("deadlift", "rack pull"), "DEADLIFT"),
@@ -469,7 +489,7 @@ GARMIN_CATEGORIES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("push up", "pushup"), "PUSH_UP"),
     (("overhead press", "shoulder press", "military press", "arnold press", "push press"), "SHOULDER_PRESS"),
     (("face pull", "external rotation", "internal rotation"), "SHOULDER_STABILITY"),
-    (("triceps", "tricep", "skullcrusher", "skull crusher", "pushdown", "dip"), "TRICEPS_EXTENSION"),
+    (("tricep", "skullcrusher", "skull crusher", "pushdown", "dip"), "TRICEPS_EXTENSION"),
     (("shrug",), "SHRUG"),
     (("row", "pullover"), "ROW"),
     (("fly", "flye", "crossover", "pec deck"), "FLYE"),
@@ -479,7 +499,7 @@ GARMIN_CATEGORIES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("sit up", "situp"), "SIT_UP"),
     (("crunch", "ab wheel", "rollout"), "CRUNCH"),
     (("carry", "farmer"), "CARRY"),
-    (("box jump", "jump"), "PLYO"),
+    (("jump",), "PLYO"),
 )
 GARMIN_BY_MUSCLE = {"core": "CORE", "cardio": "CARDIO", "fullBody": "TOTAL_BODY"}
 
@@ -562,7 +582,7 @@ def build_fit(workout: WorkoutIn, unit: str) -> bytes:
     all_sets = [(index, item) for index, exercise in enumerate(workout.exercises) for item in exercise.sets]
     slot = total / max(1, len(all_sets))
     for position, (index, item) in enumerate(all_sets):
-        category, exact = kinds[index]
+        number_in_fit, exact = kinds[index]
         record = SetMessage()
         record.message_index = position
         record.start_time = start + round(position * slot * 1000)
@@ -574,8 +594,8 @@ def build_fit(workout: WorkoutIn, unit: str) -> bytes:
         if item.weight is not None:
             record.weight = max(0.0, min(item.weight, 4_000.0))
         record.weight_display_unit = fit.FitBaseUnit.POUND if unit == "lb" else fit.FitBaseUnit.KILOGRAM
-        if category is not None:
-            record.category = [category]
+        if number_in_fit is not None:
+            record.category = [number_in_fit]
         if exact is not None:
             record.category_subtype = [exact]
         record.workout_step_index = index
@@ -642,11 +662,15 @@ def send_to_garmin(request: ExportRequest) -> dict:
         try:
             answer = client.upload_activity(str(path))
         except Exception as error:
-            failure = garmin_failure(error)
-            if failure.status_code == 401:
-                forget_garmin()
-                raise HTTPException(401, f"Garmin no longer accepts the saved login; {CONNECT_AGAIN}.") from error
-            raise failure from error
+            # Garmin says "you already have this one" with an error status; its
+            # answer is read like any other before the error is taken at its word.
+            answer = getattr(error, "response", None)
+            if garmin_upload_result(answer) == (None, ""):
+                failure = garmin_failure(error)
+                if failure.status_code == 401:
+                    forget_garmin()
+                    raise HTTPException(401, f"Garmin no longer accepts the saved login; {CONNECT_AGAIN}.") from error
+                raise failure from error
     finally:
         shutil.rmtree(folder, ignore_errors=True)
 
@@ -689,10 +713,11 @@ def export(target: str, request: ExportRequest) -> dict:
     workout = request.workout
     if workout.ended_at <= workout.started_at:
         raise HTTPException(422, "That workout has no end time; only finished workouts can be sent.")
-    already = sent_before(workout.id, target)
-    if already:
-        return {**already, "already": True}
-    result = send_to_strava(request) if target == "strava" else send_to_garmin(request)
-    result["at"] = int(time.time() * 1000)
-    remember_sent(workout.id, target, result)
-    return {**result, "already": False}
+    with _sending[target]:
+        already = sent_before(workout.id, target)
+        if already:
+            return {**already, "already": True}
+        result = send_to_strava(request) if target == "strava" else send_to_garmin(request)
+        result["at"] = int(time.time() * 1000)
+        remember_sent(workout.id, target, result)
+        return {**result, "already": False}

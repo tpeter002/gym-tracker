@@ -168,6 +168,7 @@ export function RankProgress({ rank }: { rank: Pick<Rank, 'tier' | 'progress'> }
 
 /** Where the sparks fly to, in pixels from the emblem's middle. */
 const SPARKS = [[-44, -22], [-28, -42], [0, -50], [28, -42], [44, -22], [-50, 6], [50, 6], [-36, 30], [36, 30]];
+// Just past the moment .rank-up has slid away in styles.css (4.1s, then 0.35s); change the two together.
 const SHOWN_FOR = 4500; // milliseconds
 
 /** The moment a lift climbs a step: slides in over the workout, celebrates, and leaves by itself. */
@@ -178,18 +179,21 @@ export function RankUpToast({ up, onDone }: { up: RankUp; onDone: () => void }) 
   }, [up, onDone]);
 
   return (
-    <div className="rank-up" role="status" data-tier={up.to.tier} onClick={onDone}>
-      <span className="rank-up-emblem">
-        {SPARKS.map(([x, y], index) => (
-          <i key={index} style={{ '--dx': `${x}px`, '--dy': `${y}px`, animationDelay: `${180 + index * 35}ms` } as React.CSSProperties} />
-        ))}
-        <RankBadge rank={up.to} size={72} celebrate decorative />
-      </span>
-      <span className="rank-up-text">
-        <span className="rank-up-kicker">{up.from ? 'Rank up' : 'First rank'}</span>
-        <strong>{rankTitle(up.to)}</strong>
-        <span className="rank-up-lift">{up.exercise.name}</span>
-      </span>
+    <div className="rank-up" role="status" data-tier={up.to.tier}>
+      {/* A tap sends it away early; as a button, so can the keyboard. */}
+      <button onClick={onDone}>
+        <span className="rank-up-emblem">
+          {SPARKS.map(([x, y], index) => (
+            <i key={index} style={{ '--dx': `${x}px`, '--dy': `${y}px`, animationDelay: `${180 + index * 35}ms` } as React.CSSProperties} />
+          ))}
+          <RankBadge rank={up.to} size={72} celebrate decorative />
+        </span>
+        <span className="rank-up-text">
+          <span className="rank-up-kicker">{up.from ? 'Rank up' : 'First rank'}</span>
+          <strong>{rankTitle(up.to)}</strong>
+          <span className="rank-up-lift">{up.exercise.name}</span>
+        </span>
+      </button>
     </div>
   );
 }

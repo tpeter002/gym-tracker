@@ -114,7 +114,7 @@ test('every ranked lift is listed strongest first under an overall rank', async 
   await bench.click();
   await expect(page.getByRole('heading', { name: 'Bench Press (Barbell)', level: 1 })).toBeVisible();
   const rank = page.getByRole('region', { name: 'Rank' });
-  await expect(rank.getByRole('link', { name: 'Rank: Gold III' })).toBeVisible();
+  await expect(rank.getByRole('link', { name: /^Gold III/ })).toBeVisible();
   await expect(rank).toContainText('116.5 kg for Platinum I');
 });
 

@@ -1,5 +1,6 @@
 import { navigate } from './router';
 import { getState, signal, update } from './store';
+import type { Settings } from './types';
 import { activeWorkout, startEmpty, startRepeat } from './workouts';
 
 export type StartRequest = { kind: 'empty' } | { kind: 'repeat'; workoutId: string };
@@ -18,4 +19,10 @@ export function beginWorkout(request: StartRequest): void {
     else startRepeat(draft, request.workoutId);
   });
   navigate('/workout');
+}
+
+export function changeSettings(patch: Partial<Settings>): void {
+  update((draft) => {
+    Object.assign(draft.settings, patch);
+  });
 }

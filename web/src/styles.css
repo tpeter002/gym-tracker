@@ -23,6 +23,7 @@
   --segment: #ffffff;
   --shadow: 0 10px 36px rgba(0, 0, 0, 0.18);
   --tabbar-h: 56px;
+  --sidebar-w: 232px;
   --radius: 12px;
   --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
@@ -75,22 +76,25 @@ svg { flex: none; }
 
 .grow { flex: 1; min-width: 0; }
 
-.visually-hidden {
-  position: absolute; width: 1px; height: 1px; overflow: hidden;
-  clip-path: inset(50%); white-space: nowrap;
-}
-
 /* App frame: tab bar at the bottom on phones, a sidebar on wide screens. */
+
+/*
+ * What the tab bar and the home indicator take up at the bottom. Set on
+ * .no-tabs as well: a custom property gets its value where it is declared, so
+ * from :root alone it would go on counting the tab bar on pages without one.
+ */
+:root, .no-tabs { --bottom-inset: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); }
+
 .main {
   max-width: 680px;
   margin: 0 auto;
-  padding: 0 16px calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 28px);
+  padding: 0 16px calc(var(--bottom-inset) + 28px);
 }
 
 .nav {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
   display: flex;
-  height: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+  height: var(--bottom-inset);
   padding-bottom: env(safe-area-inset-bottom);
   background: var(--bar-bg);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
@@ -110,10 +114,10 @@ svg { flex: none; }
 
 @media (min-width: 900px) {
   :root, .no-tabs { --tabbar-h: 0px; }
-  .app { padding-left: 232px; }
+  .app { padding-left: var(--sidebar-w); }
   .nav, .no-tabs .nav {
     display: flex; flex-direction: column; gap: 2px;
-    top: 0; right: auto; width: 232px; height: auto;
+    top: 0; right: auto; width: var(--sidebar-w); height: auto;
     padding: 20px 12px;
     border-top: 0; border-right: 1px solid var(--separator);
   }
@@ -156,7 +160,8 @@ svg { flex: none; }
   -webkit-backdrop-filter: none; backdrop-filter: none;
 }
 .page-header.large h1 { max-width: none; font-size: 34px; font-weight: 700; letter-spacing: -0.4px; text-align: left; }
-.page-header.large .trailing { margin-right: -10px; }
+/* Out into the gutter and below the title's line, so that it is the icon that lines up with the page, not the button's 44px box. */
+.page-header.large .trailing { margin: 0 -12px -2px 0; }
 
 .bar-button {
   display: inline-flex; align-items: center; justify-content: center; gap: 2px;
@@ -168,12 +173,14 @@ svg { flex: none; }
 
 .icon-button {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 40px; height: 40px; border-radius: 10px;
+  width: 44px; height: 44px; border-radius: 10px;
   color: var(--accent);
 }
 @media (hover: hover) {
   .bar-button:hover, .icon-button:hover { background: var(--fill); }
 }
+/* The tap highlight is off (see body), so :active is what answers a touch — here and on rows, buttons and chips below. */
+.bar-button:not(:disabled):active, .icon-button:not(:disabled):active { background: var(--fill-2); }
 
 /* Grouped sections */
 .section { margin-top: 26px; }
@@ -182,8 +189,9 @@ svg { flex: none; }
   padding: 0 16px 7px;
   color: var(--text-2); font-size: 13px; font-weight: 400; letter-spacing: 0.02em; text-transform: uppercase;
 }
+.section-header h2 { font: inherit; }
+.section-header > span { margin-left: auto; }
 .section-footer { padding: 7px 16px 0; color: var(--text-2); font-size: 13px; }
-.section-footer.error, .error-text { color: var(--red); }
 .card { overflow: hidden; border-radius: var(--radius); background: var(--surface); }
 
 .row {
@@ -192,21 +200,18 @@ svg { flex: none; }
   width: 100%; min-height: 46px; padding: 10px 16px;
   color: var(--text); text-align: left;
 }
-.card > :not(:first-child)::before {
+/* A hairline between rows. A form inside a card is not a row itself: its children are. */
+.card > *, .card > form > * { position: relative; }
+.card > :not(:first-child)::before, .card > form > :not(:first-child)::before {
   content: ''; position: absolute; top: 0; left: 16px; right: 0;
   height: 1px; background: var(--separator);
 }
-.card > * { position: relative; }
 .card > form::before { display: none; }
-.card > form > * { position: relative; }
-.card > form > :not(:first-child)::before {
-  content: ''; position: absolute; top: 0; left: 16px; right: 0;
-  height: 1px; background: var(--separator);
-}
 a.row, button.row { cursor: pointer; }
 @media (hover: hover) {
-  a.row:hover, button.row:not(:disabled):hover, .row-main:hover { background: var(--fill); }
+  a.row:hover, button.row:not(:disabled):hover, a.row-main:hover { background: var(--fill); }
 }
+a.row:active, button.row:not(:disabled):active, a.row-main:active { background: var(--fill-2); }
 .row.accent { color: var(--accent); }
 .row.destructive { color: var(--red); justify-content: center; }
 .row.centered { justify-content: center; font-weight: 600; }
@@ -216,14 +221,14 @@ a.row, button.row { cursor: pointer; }
 .row-value + .chevron { margin-left: 0; }
 .row.split { padding: 0; gap: 0; align-items: stretch; }
 .row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 10px 16px; color: var(--text); }
-.row.split > .icon-button { align-self: center; margin-right: 8px; }
+.row.split > .icon-button { align-self: center; margin: 0 6px 0 -2px; }
 .row.split > .btn { flex: none; align-self: center; margin-right: 12px; padding: 0 18px; }
 
 .title-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .sub { display: flex; align-items: center; gap: 5px; margin-top: 2px; color: var(--text-2); font-size: 13px; }
-.secondary { color: var(--text-2); }
 .small { font-size: 15px; }
 .caption { font-size: 13px; }
+.medium { font-weight: 500; }
 .numeric { font-variant-numeric: tabular-nums; }
 .prewrap { white-space: pre-wrap; }
 .clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; overflow: hidden; }
@@ -247,7 +252,6 @@ a.row, button.row { cursor: pointer; }
   background: var(--accent-soft); color: var(--accent);
   font-size: 11px; font-weight: 700; white-space: nowrap;
 }
-.warm { color: var(--warm); }
 
 /* Buttons */
 .btn {
@@ -259,10 +263,11 @@ a.row, button.row { cursor: pointer; }
 .btn-primary { background: var(--accent-fill); color: var(--on-accent); }
 .btn-tinted { background: var(--accent-soft); color: var(--accent); }
 .btn-inline { width: auto; min-height: 44px; }
+.btn:not(:disabled):active { opacity: 0.75; }
 .spaced { margin-top: 16px; }
 
 .bottom-bar {
-  position: sticky; bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); z-index: 5;
+  position: sticky; bottom: var(--bottom-inset); z-index: 5;
   margin: 8px -16px 0; padding: 20px 16px 12px;
   background: linear-gradient(to bottom, transparent, var(--bg) 40%);
 }
@@ -280,15 +285,15 @@ a.row, button.row { cursor: pointer; }
 .resume-bar {
   position: fixed; z-index: 15;
   width: auto;
-  left: 12px; right: 12px; bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 8px);
+  left: 12px; right: 12px; bottom: calc(var(--bottom-inset) + 8px);
   max-width: 656px; margin: 0 auto;
   padding: 10px 14px; border-radius: 14px;
   box-shadow: var(--shadow);
 }
-.has-resume-bar .main { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 96px); }
-.has-resume-bar .bottom-bar { bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 64px); }
+.has-resume-bar .main { padding-bottom: calc(var(--bottom-inset) + 96px); }
+.has-resume-bar .bottom-bar { bottom: calc(var(--bottom-inset) + 64px); }
 @media (min-width: 900px) {
-  .resume-bar { left: 244px; bottom: 16px; }
+  .resume-bar { left: calc(var(--sidebar-w) + 12px); bottom: 16px; }
 }
 
 .banner {
@@ -332,6 +337,7 @@ input[type='date'].field { flex: none; width: auto; margin-left: auto; color: va
   font-size: 15px; font-weight: 500;
 }
 .chip[aria-pressed='true'] { background: var(--accent-fill); color: var(--on-accent); }
+.chip:active { opacity: 0.75; }
 
 .segmented { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 2px; border-radius: 9px; background: var(--fill-2); }
 .segmented label {
@@ -345,18 +351,6 @@ input[type='date'].field { flex: none; width: auto; margin-left: auto; color: va
 .row .segmented { margin-left: auto; }
 
 .switch {
-  -webkit-appearance: none; appearance: none; flex: none; position: relative;
-  width: 51px; height: 31px; margin: 0; border-radius: 16px;
-  background: var(--fill-2); cursor: pointer; transition: background 0.15s;
-}
-.switch::after {
-  content: ''; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px;
-  border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / 0.3); transition: transform 0.15s;
-}
-.switch:checked { background: var(--green-fill); }
-.switch:checked::after { transform: translateX(20px); }
-
-.switch {
   -webkit-appearance: none; appearance: none;
   position: relative; flex: none;
   width: 51px; height: 31px; margin: 0 0 0 auto;
@@ -366,7 +360,7 @@ input[type='date'].field { flex: none; width: auto; margin-left: auto; color: va
 .switch::after {
   content: ''; position: absolute; top: 2px; left: 2px;
   width: 27px; height: 27px; border-radius: 50%;
-  background: #fff; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
+  background: var(--on-accent); box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
   transition: transform 0.2s;
 }
 .switch:checked { background: var(--green-fill); }
@@ -384,7 +378,7 @@ input[type='date'].field { flex: none; width: auto; margin-left: auto; color: va
   padding: 72px 24px 24px;
   color: var(--text-2); text-align: center;
 }
-.empty h2 { color: var(--text); font-size: 22px; font-weight: 700; }
+.empty h1, .empty h2 { color: var(--text); font-size: 22px; font-weight: 700; }
 .empty p { max-width: 340px; font-size: 15px; }
 .empty .btn { margin-top: 8px; }
 
@@ -401,6 +395,8 @@ input[type='date'].field { flex: none; width: auto; margin-left: auto; color: va
 /* Active workout */
 .entry-header { display: flex; align-items: center; gap: 4px; padding: 10px 6px 4px 14px; }
 .entry-header h2 { color: var(--accent); font-size: 17px; font-weight: 600; }
+/* Full-size tap targets that take up no more of the header than their 40px used to. */
+.entry-header .icon-button { margin: -2px; }
 .set-grid {
   display: grid; grid-template-columns: 32px minmax(0, 1fr) 60px 46px 50px 38px; gap: 6px; align-items: center;
   padding: 4px 10px;
@@ -421,11 +417,18 @@ select.cell { -webkit-appearance: none; appearance: none; text-align-last: cente
 select.cell.unset { color: var(--text-2); }
 .set-row.done .cell:not(.check) { background: transparent; }
 .set-label { font-size: 15px; font-weight: 600; }
+/* As on .pill-toggle: the tap target reaches into the row's padding and half-way into the gaps, to 44px each way. */
+.check, .set-label { position: relative; }
+.check::after, .set-label::after { content: ''; position: absolute; inset: -4px -3px; }
+.set-label::after { left: -9px; }
 .previous { min-height: 36px; padding: 0 2px; color: var(--text-2); font-size: 13px; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .previous span { display: inline-block; white-space: nowrap; }
 .check { display: inline-flex; align-items: center; justify-content: center; color: var(--text-2); }
-.check[aria-pressed='true'] { background: var(--green-fill); color: #fff; }
+.check[aria-pressed='true'] { background: var(--green-fill); color: var(--on-accent); }
 .add-set { justify-content: center; min-height: 42px; color: var(--accent); font-size: 15px; font-weight: 500; }
+
+/* A finished workout's sets: the number, or W, in a column of its own. */
+.set-number { width: 20px; font-weight: 600; }
 
 /* Videos */
 .thumb {
@@ -438,13 +441,11 @@ select.cell.unset { color: var(--text-2); }
 .video-head { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; }
 .video-head h2 { font-size: 17px; font-weight: 600; }
 .status { font-size: 13px; font-weight: 500; }
-.ok-text { display: inline-flex; align-items: center; gap: 6px; color: var(--green); }
 
 /* Numbered how-to inside a card. */
 .steps { margin: 0; padding-left: 22px; color: var(--text-2); font-size: 15px; }
 .steps li + li { margin-top: 6px; }
 .steps b { color: var(--text); font-weight: 600; }
-.bad-text { display: inline-flex; align-items: center; gap: 6px; color: var(--red); }
 
 /* Body weight */
 .hero { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 16px 16px 4px; }
@@ -489,12 +490,15 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 .sheet-header .trailing { grid-column: 3; justify-self: end; display: flex; }
 .sheet-body { flex: 1; min-height: 0; padding: 0 16px 24px; overflow-y: auto; overscroll-behavior: contain; }
 .sheet-body > .section:first-child { margin-top: 8px; }
+/* Without a footer, the body is what reaches down to the home indicator. */
+.sheet-body:last-child { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
 .sheet-footer { flex: none; padding: 10px 16px calc(12px + env(safe-area-inset-bottom)); }
 @keyframes sheet-up { from { transform: translateY(40%); opacity: 0; } }
 
 @media (min-width: 640px) {
   .sheet { width: 520px; max-height: 86dvh; margin: auto; border-radius: 14px; }
   .sheet.tall { height: 86dvh; }
+  .sheet-body:last-child { padding-bottom: 24px; }
   .sheet[open] { animation-name: pop-in; animation-duration: 0.18s; }
 }
 
@@ -511,6 +515,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 .alert .actions .cancel { background: none; font-weight: 600; }
 @keyframes pop-in { from { transform: scale(0.96); opacity: 0; } }
 
+/* Menu() in ui/overlays.tsx guesses the menu's height from the padding and row sizes here. */
 .menu {
   position: fixed; inset: auto; margin: 0; padding: 6px;
   min-width: 210px;
@@ -523,12 +528,11 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
   border-radius: 8px;
   font-size: 16px; text-align: left;
 }
-.menu button:hover, .menu button:focus-visible { background: var(--fill); outline: none; }
-.menu .destructive { color: var(--red); }
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+.menu button:focus-visible { background: var(--fill); outline: none; }
+@media (hover: hover) {
+  .menu button:hover { background: var(--fill); }
 }
+.menu .destructive { color: var(--red); }
 
 /* Ranks. Each tier has a colour of its own for bars and glows; the emblems carry theirs inside (ui/RankBadge.tsx). */
 [data-tier='iron'] { --tier: #7b8591; }
@@ -570,15 +574,20 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 /* The moment a lift climbs a step. */
 .rank-up {
   position: fixed; z-index: 40; top: calc(env(safe-area-inset-top) + 10px); left: 50%;
-  display: flex; align-items: center; gap: 14px;
-  width: min(360px, calc(100vw - 24px)); padding: 12px 18px 12px 12px;
-  border-radius: 22px; background: var(--surface); color: var(--text); text-align: left;
+  width: min(360px, calc(100vw - 24px));
+  border-radius: 22px; background: var(--surface); color: var(--text);
   box-shadow: var(--shadow), 0 0 0 2px var(--tier);
-  cursor: pointer;
   translate: -50% 0;
+  /* It has left after 4.1s + 0.35s, just before SHOWN_FOR in ui/RankBadge.tsx removes it; change the two together. */
   animation: rank-up-in 0.5s cubic-bezier(0.2, 1.3, 0.3, 1) both, rank-up-out 0.35s ease-in 4.1s both;
 }
-@media (min-width: 900px) { .rank-up { left: calc(50% + 116px); } }
+.rank-up button {
+  display: flex; align-items: center; gap: 14px;
+  width: 100%; padding: 12px 18px 12px 12px;
+  border-radius: inherit; text-align: left;
+}
+/* Centred on the page beside the sidebar, not on the window. */
+@media (min-width: 900px) { .rank-up { left: calc(50% + var(--sidebar-w) / 2); } }
 .rank-up-emblem { position: relative; flex: none; width: 72px; height: 72px; }
 .rank-up-emblem i {
   position: absolute; left: 50%; top: 45%; width: 10px; height: 10px; margin: -5px;
@@ -587,7 +596,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
   animation: rank-spark 0.9s ease-out both;
 }
 .rank-up-text { display: flex; flex-direction: column; min-width: 0; }
-.rank-up-kicker { color: var(--tier); font-size: 12px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; }
+.rank-up-kicker { color: var(--text-2); font-size: 12px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; }
 .rank-up-text strong { font-size: 24px; font-weight: 700; letter-spacing: -0.3px; line-height: 1.15; }
 .rank-up-lift { overflow: hidden; color: var(--text-2); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -612,6 +621,21 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
   70% { opacity: 1; }
   100% { transform: translate(var(--dx), var(--dy)) scale(1.1) rotate(90deg); opacity: 0; }
 }
+
+/*
+ * Colour utilities. After every component rule, so that one of these on an
+ * element wins over the colour its component class gives it (.row, .sub…).
+ */
+.secondary { color: var(--text-2); }
+.accent-text { color: var(--accent); }
+.warm { color: var(--warm); }
+.error-text { color: var(--red); }
+.ok-text, .bad-text { display: inline-flex; align-items: center; gap: 6px; }
+.ok-text { color: var(--green); }
+.bad-text { color: var(--red); }
+
 @media (prefers-reduced-motion: reduce) {
+  /* One pass as well as no time: an animation that loops, like the spinner, would otherwise flicker. */
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
   .rank-up, .rank-up-emblem i, .rank-badge.celebrate, .rank-badge.celebrate .rank-shine, .rank-bar > span { animation: none; transition: none; }
 }

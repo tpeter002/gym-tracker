@@ -53,9 +53,9 @@ export function Videos({ state }: { state: AppState }) {
             <Link key={video.id} to={`/videos/${video.id}`} className="row">
               <Thumbnail video={video} />
               <span className="grow">
-                <span className="small" style={{ fontWeight: 500 }}>{videoTitle(video)}</span>
+                <span className="small medium">{videoTitle(video)}</span>
                 <span className="sub">{videoSource(video.url)} · {fmtDate(video.addedAt)}</span>
-                <span className={exercisesFrom(state, video.id).length > 0 ? 'sub status row-icon' : 'sub status'}>
+                <span className={exercisesFrom(state, video.id).length > 0 ? 'sub status accent-text' : 'sub status'}>
                   {status(video)}
                 </span>
               </span>
@@ -147,7 +147,7 @@ export function VideoDetail({ state, video }: { state: AppState; video: SavedVid
   else if (online === false) {
     note = 'Automatic identification needs the analyzer running on your Mac — open this app from its address, or set the address in Settings.';
   } else if (video.analyzedAt !== null && pending.length === 0 && onList.length === 0) {
-    note = "The analyzer didn't recognise any exercises in this video.";
+    note = "The analyzer didn't recognize any exercises in this video.";
   }
 
   return (
@@ -201,7 +201,7 @@ export function VideoDetail({ state, video }: { state: AppState; video: SavedVid
                 <span className="grow">
                   {resolvedName(suggestion)}
                   {suggestion.notes && <span className="sub">{suggestion.notes}</span>}
-                  {suggestion.setsReps && <span className="sub status row-icon">{suggestion.setsReps}</span>}
+                  {suggestion.setsReps && <span className="sub status accent-text">{suggestion.setsReps}</span>}
                 </span>
               </div>
               <button

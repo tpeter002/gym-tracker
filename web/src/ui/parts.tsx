@@ -1,7 +1,9 @@
-import { ArrowLeftRight, Calendar, Clock, Play, RotateCw, SquarePlay } from 'lucide-react';
+import { ArrowLeftRight, Calendar, ChevronUp, Clock, Dumbbell, Play, RotateCw, SquarePlay } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { requestStart } from '../lib/actions';
 import { exerciseSubtitle } from '../lib/exercises';
+import { navigate } from '../lib/router';
 import { update } from '../lib/store';
 import type { Exercise, SavedVideo, Workout, WorkoutEntry } from '../lib/types';
 import { fmtClock, fmtDayMonth, fmtDuration } from '../lib/units';
@@ -29,7 +31,7 @@ export function ExerciseLabel({ exercise }: { exercise: Exercise }) {
       </span>
       <span className="sub">
         {exerciseSubtitle(exercise)}
-        {exercise.videoURL && <SquarePlay size={14} aria-label="has a video" />}
+        {exercise.videoURL && <SquarePlay size={14} role="img" aria-label="has a video" />}
       </span>
     </span>
   );
@@ -47,12 +49,32 @@ export function DumbbellToggle({ workoutId, entry }: { workoutId: string; entry:
       className="pill-toggle"
       aria-pressed={both}
       aria-label="Both dumbbells together"
-      title={both ? 'The weights are the two dumbbells together. Tap if they are one dumbbell.' : 'The weights are one dumbbell. Tap if they are the two together.'}
+      title={both ? 'The weights are the two dumbbells together.' : 'The weights are one dumbbell.'}
       onClick={() => update((draft) => setBothDumbbells(draft, workoutId, entry.id, !both))}
     >
       <ArrowLeftRight size={13} aria-hidden />
       {both ? 'Both dumbbells' : 'Per dumbbell'}
     </button>
+  );
+}
+
+/** How many exercises a workout's summary names before it says "+ N more". */
+const SUMMARY_ENTRIES = 4;
+
+/** A workout at a glance: its name, a line of facts (`meta`) and its first few exercises. */
+export function WorkoutSummary({ workout, meta, children }: { workout: Workout; meta: ReactNode; children?: ReactNode }) {
+  return (
+    <div className="summary">
+      <h3>{workout.name}</h3>
+      <div className="meta">{meta}</div>
+      <ul>
+        {workout.entries.slice(0, SUMMARY_ENTRIES).map((entry) => (
+          <li key={entry.id}>{entry.sets.length} × {entry.exerciseName}</li>
+        ))}
+        {workout.entries.length > SUMMARY_ENTRIES && <li>+ {workout.entries.length - SUMMARY_ENTRIES} more</li>}
+      </ul>
+      {children}
+    </div>
   );
 }
 
@@ -62,19 +84,15 @@ export function WorkoutRow({ workout }: { workout: Workout }) {
   return (
     <div className="row split">
       <Link to={`/history/${workout.id}`} className="row-main">
-        <div className="summary">
-          <h3>{workout.name}</h3>
-          <div className="meta">
-            <span><Calendar size={14} aria-hidden />{fmtDayMonth(workout.startedAt)}</span>
-            {seconds >= 60 && <span><Clock size={14} aria-hidden />{fmtDuration(seconds)}</span>}
-          </div>
-          <ul>
-            {workout.entries.slice(0, 4).map((entry) => (
-              <li key={entry.id}>{entry.sets.length} × {entry.exerciseName}</li>
-            ))}
-            {workout.entries.length > 4 && <li>+ {workout.entries.length - 4} more</li>}
-          </ul>
-        </div>
+        <WorkoutSummary
+          workout={workout}
+          meta={
+            <>
+              <span><Calendar size={14} aria-hidden />{fmtDayMonth(workout.startedAt)}</span>
+              {seconds >= 60 && <span><Clock size={14} aria-hidden />{fmtDuration(seconds)}</span>}
+            </>
+          }
+        />
       </Link>
       <button
         className="icon-button"
@@ -85,6 +103,20 @@ export function WorkoutRow({ workout }: { workout: Workout }) {
         <RotateCw size={20} aria-hidden />
       </button>
     </div>
+  );
+}
+
+/** The running workout, as a button back into it. */
+export function ResumeCard({ workout, compact }: { workout: Workout; compact?: boolean }) {
+  return (
+    <button className={compact ? 'resume-card resume-bar' : 'resume-card'} onClick={() => navigate('/workout')}>
+      {!compact && <Dumbbell size={26} aria-hidden />}
+      <span className="grow">
+        <strong>{workout.name || 'Workout'}</strong>
+        <span className="small">In progress · <ElapsedTime since={workout.startedAt} /></span>
+      </span>
+      <span className="cta">Resume <ChevronUp size={18} aria-hidden /></span>
+    </button>
   );
 }
 

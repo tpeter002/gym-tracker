@@ -192,6 +192,6 @@ test('says what is missing when Strava is not set up, or the analyzer is not the
 
   mock.online = false;
   await page.reload();
-  await expect(page.getByRole('region', { name: 'Connections' })).toContainText('The analyzer isn’t reachable');
+  await expect(page.getByRole('region', { name: 'Connections' })).toContainText("The analyzer isn't reachable");
   await expect(page.getByRole('region', { name: 'Strava' })).toHaveCount(0);
 });

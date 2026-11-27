@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { addExercise, CANNED_ANALYSIS, mockAnalyzer, seed } from './helpers';
 
 // Every test starts in a fresh browser profile, i.e. with an empty database.
@@ -101,7 +102,7 @@ test('starting a second workout asks first', async ({ page }) => {
   await page.goto('/#/');
   await page.getByRole('button', { name: 'Start Empty Workout' }).click();
   await page.getByLabel('Workout name').fill('First one');
-  await page.getByRole('button', { name: 'Minimise' }).click();
+  await page.getByRole('button', { name: 'Minimize' }).click();
 
   // The running workout stays one tap away.
   await expect(page.getByRole('button', { name: /First one.*In progress.*Resume/ })).toBeVisible();
@@ -111,7 +112,7 @@ test('starting a second workout asks first', async ({ page }) => {
   await question.getByRole('button', { name: 'Resume Current Workout' }).click();
   await expect(page.getByLabel('Workout name')).toHaveValue('First one');
 
-  await page.getByRole('button', { name: 'Minimise' }).click();
+  await page.getByRole('button', { name: 'Minimize' }).click();
   await page.getByRole('button', { name: 'Repeat Legs' }).first().click();
   await question.getByRole('button', { name: 'Discard It and Start New' }).click();
   await expect(page.getByLabel('Workout name')).toHaveValue('Legs');
@@ -353,7 +354,7 @@ test('log body weight', async ({ page }) => {
   await expect(chart.locator('.chart-tip')).toContainText('85 kg');
 
   await main.getByRole('button', { name: /^Delete the entry from/ }).last().click();
-  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete Weigh-in' }).click();
   await expect(main.getByRole('button', { name: /^Delete the entry from/ })).toHaveCount(1);
 });
 
@@ -460,4 +461,75 @@ test('says so when the browser gives it nowhere to store data', async ({ page })
   // It still works for as long as the tab stays open.
   await page.getByRole('button', { name: 'Start Empty Workout' }).click();
   await expect(page.getByLabel('Workout name')).toBeVisible();
+});
+
+test('a connection test overtaken by an edit of the address reports nothing', async ({ page }) => {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  let answered = 0;
+  await page.route(/\/(slow|quick)\/health$/, async (route) => {
+    if (route.request().url().includes('/slow/')) await held;
+    await route.fulfill({ json: { ok: true } });
+    answered += 1;
+  });
+  await page.goto('/#/settings');
+  const address = page.getByLabel('Analyzer address');
+  const button = page.getByRole('button', { name: /^Test Connection/ });
+
+  await address.fill('localhost:4173/slow');
+  await button.click();
+  await expect(button.locator('.spinner')).toBeVisible();
+  // The address changes while the answer is on its way, so the answer is about another analyzer.
+  await address.fill('localhost:4173/quick');
+  await expect(button.locator('.spinner')).toHaveCount(0);
+  release();
+  await expect.poll(() => answered).toBe(1);
+  // Looked at once, after a pause: an assertion that waits could pass before the late answer had its chance to show.
+  await page.waitForTimeout(300);
+  expect(await button.getByText('Connected').count()).toBe(0);
+
+  await button.click();
+  await expect(button).toContainText('Connected');
+});
+
+/** Reaches past the app into its database: puts a workout record there, or takes the one with that id out again. */
+async function tamper(page: Page, change: { put: Record<string, unknown> } | { remove: string }): Promise<void> {
+  await page.evaluate(async (change) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('gym-tracker');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = database.transaction('workouts', 'readwrite');
+      if ('put' in change) tx.objectStore('workouts').put(change.put);
+      else tx.objectStore('workouts').delete(change.remove);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    database.close();
+  }, change);
+}
+
+test('a record the app cannot draw leaves a way out instead of a blank page', async ({ page }) => {
+  await page.goto('/#/history');
+  await expect(page.getByRole('heading', { name: 'No Workouts Yet' })).toBeVisible(); // the database exists by now
+  // A finished workout as no version of the app would write it.
+  await tamper(page, { put: { id: 'damaged', name: 'Damaged', startedAt: 1_700_000_000_000, endedAt: 1_700_000_003_600, notes: '', entries: null } });
+  await page.reload();
+
+  const fallback = page.getByRole('alert');
+  await expect(fallback.getByRole('heading', { name: 'Something went wrong' })).toBeVisible();
+  await expect(fallback.getByRole('button', { name: 'Reload' })).toBeVisible();
+  // The data can still be taken out, the damaged record included.
+  const download = page.waitForEvent('download');
+  await fallback.getByRole('button', { name: 'Download Backup' }).click();
+  const saved = await download;
+  expect(saved.suggestedFilename()).toMatch(/^gym-tracker-backup-\d{4}-\d{2}-\d{2}\.json$/);
+  expect(JSON.parse(await readFile(await saved.path(), 'utf8')).data.workouts).toEqual([expect.objectContaining({ id: 'damaged' })]);
+
+  // Reload starts the app afresh: once the record is gone, the page is back.
+  await tamper(page, { remove: 'damaged' });
+  await fallback.getByRole('button', { name: 'Reload' }).click();
+  await expect(page.getByRole('heading', { name: 'No Workouts Yet' })).toBeVisible();
 });

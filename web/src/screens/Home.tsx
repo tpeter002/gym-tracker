@@ -1,14 +1,18 @@
-import { Calendar, ChevronUp, Dumbbell, Plus, Settings, Sparkles, SquarePlay } from 'lucide-react';
+import { Calendar, Plus, Settings, Sparkles, SquarePlay } from 'lucide-react';
 import { useMemo } from 'react';
 import { requestStart } from '../lib/actions';
-import { navigate } from '../lib/router';
 import { byNewest, nextWorkout, toTryFor } from '../lib/suggestions';
 import type { Routine } from '../lib/suggestions';
-import type { AppState, Workout } from '../lib/types';
+import type { AppState } from '../lib/types';
 import { fmtDaysAgo } from '../lib/units';
 import { activeWorkout, finishedWorkouts } from '../lib/workouts';
 import { Link, LinkRow, Page, Section } from '../ui/layout';
-import { ElapsedTime, ExerciseLabel, WorkoutRow } from '../ui/parts';
+import { ExerciseLabel, ResumeCard, WorkoutRow, WorkoutSummary } from '../ui/parts';
+
+/** How many finished workouts the landing tab lists; the rest are under History. */
+const RECENT_SHOWN = 5;
+/** How many to-try exercises it lists before pointing at the picker. */
+const TO_TRY_SHOWN = 5;
 
 /**
  * Landing tab: start or resume a workout, see which routine is due and what's
@@ -16,7 +20,7 @@ import { ElapsedTime, ExerciseLabel, WorkoutRow } from '../ui/parts';
  */
 export function Home({ state }: { state: AppState }) {
   const active = activeWorkout(state);
-  const recent = useMemo(() => finishedWorkouts(state).slice(0, 5), [state.workouts]);
+  const recent = useMemo(() => finishedWorkouts(state).slice(0, RECENT_SHOWN), [state.workouts]);
   const toTry = useMemo(
     () => state.exercises.filter((exercise) => exercise.wantToTry).sort(byNewest),
     [state.exercises],
@@ -51,7 +55,7 @@ export function Home({ state }: { state: AppState }) {
         footer={
           state.videos.length === 0
             ? 'Save a workout reel, short or TikTok under Saved Videos and its exercises show up here.'
-            : toTry.length > 5 && `${toTry.length - 5} more in the exercise picker.`
+            : toTry.length > TO_TRY_SHOWN && `${toTry.length - TO_TRY_SHOWN} more in the exercise picker.`
         }
       >
         <LinkRow to="/videos">
@@ -59,7 +63,7 @@ export function Home({ state }: { state: AppState }) {
           Saved Videos
           <span className="row-value">{state.videos.length}</span>
         </LinkRow>
-        {toTry.slice(0, 5).map((exercise) => (
+        {toTry.slice(0, TO_TRY_SHOWN).map((exercise) => (
           <LinkRow key={exercise.id} to={`/exercises/${exercise.id}`}>
             <ExerciseLabel exercise={exercise} />
           </LinkRow>
@@ -83,24 +87,17 @@ function NextWorkout({ state, routine }: { state: AppState; routine: Routine }) 
     <Section title="Up next" footer="The routine you have gone longest without. Starting it repeats your last session of it.">
       <div className="row split">
         <Link to={`/history/${latest.id}`} className="row-main">
-          <div className="summary">
-            <h3>{latest.name}</h3>
-            <div className="meta">
-              <span><Calendar size={14} aria-hidden />Last done {fmtDaysAgo(latest.startedAt)}</span>
-            </div>
-            <ul>
-              {latest.entries.slice(0, 4).map((entry) => (
-                <li key={entry.id}>{entry.sets.length} × {entry.exerciseName}</li>
-              ))}
-              {latest.entries.length > 4 && <li>+ {latest.entries.length - 4} more</li>}
-            </ul>
+          <WorkoutSummary
+            workout={latest}
+            meta={<span><Calendar size={14} aria-hidden />Last done {fmtDaysAgo(latest.startedAt)}</span>}
+          >
             {fitting.length > 0 && (
               <p className="fits">
                 <Sparkles size={14} aria-hidden />
                 {fitting.length} to try: {fitting.map((exercise) => exercise.name).join(', ')}
               </p>
             )}
-          </div>
+          </WorkoutSummary>
         </Link>
         <button
           className="btn btn-primary btn-inline"
@@ -111,19 +108,5 @@ function NextWorkout({ state, routine }: { state: AppState; routine: Routine }) 
         </button>
       </div>
     </Section>
-  );
-}
-
-/** The running workout, as a button back into it. */
-export function ResumeCard({ workout, compact }: { workout: Workout; compact?: boolean }) {
-  return (
-    <button className={compact ? 'resume-card resume-bar' : 'resume-card'} onClick={() => navigate('/workout')}>
-      {!compact && <Dumbbell size={26} aria-hidden />}
-      <span className="grow">
-        <strong>{workout.name || 'Workout'}</strong>
-        <span className="small">In progress · <ElapsedTime since={workout.startedAt} /></span>
-      </span>
-      <span className="cta">Resume <ChevronUp size={18} aria-hidden /></span>
-    </button>
   );
 }

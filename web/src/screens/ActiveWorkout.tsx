@@ -1,13 +1,13 @@
 import { Check, ChevronDown, CirclePlus, Ellipsis, Plus, SquarePlay } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { queueExports, sendWaiting } from '../lib/exports';
-import { liftRanks, rankUps } from '../lib/ranks';
+import { rankUps } from '../lib/ranks';
 import type { LiftRank, RankUp } from '../lib/ranks';
 import { goBack, navigate } from '../lib/router';
 import { update } from '../lib/store';
 import { toTryFor } from '../lib/suggestions';
 import type { AppState, EffortScale, Exercise, SetEntry, WeightUnit, Workout, WorkoutEntry } from '../lib/types';
-import { effortChoices, effortText, effortTitle, effortValue, fmtNumber, fromKg, rpeFrom, toKg } from '../lib/units';
+import { effortChoices, effortText, effortTitle, effortValue, fmtNumber, fromKg, rpeFrom, setText, toKg } from '../lib/units';
 import {
   addExercise, addSet, deleteSet, deleteWorkout, finishWorkout, hasCompletedSets, hasOpenSets,
   moveEntry, previousSets, removeEntry, rowLabels, takesDumbbells, updateSet,
@@ -18,6 +18,7 @@ import { Page, Section } from '../ui/layout';
 import { ConfirmDialog, Menu } from '../ui/overlays';
 import { DumbbellToggle, ElapsedTime, ExerciseLabel } from '../ui/parts';
 import { RankBadge, RankUpToast } from '../ui/RankBadge';
+import { useLiftRanks } from '../ui/useLiftRanks';
 import { ExercisePicker } from './ExercisePicker';
 
 /** How many fitting to-try exercises the workout lists before pointing at the picker. */
@@ -30,10 +31,7 @@ const RANK_SETTLE = 600; // milliseconds
  * celebrate when one of them rises while the page is open.
  */
 function useLiveRanks(state: AppState): { ranks: Map<string, LiftRank>; rankUp: RankUp | null; dismiss: () => void } {
-  const ranks = useMemo(
-    () => liftRanks(state, { includeActive: true }),
-    [state.workouts, state.exercises, state.bodyWeights, state.settings.rankStandards],
-  );
+  const ranks = useLiftRanks(state, { includeActive: true });
   // What has been seen so far; whatever stands when the page opens is not news.
   const seen = useRef<LiftRank[] | null>(null);
   const [rankUp, setRankUp] = useState<RankUp | null>(null);
@@ -98,35 +96,33 @@ export function ActiveWorkout({ state, workout }: { state: AppState; workout: Wo
       title={workout.name || 'Workout'}
       heading={<ElapsedTime since={workout.startedAt} />}
       leading={
-        <button className="bar-button" aria-label="Minimise" onClick={() => goBack('/')}>
+        <button className="bar-button" aria-label="Minimize" onClick={() => goBack('/')}>
           <ChevronDown size={24} aria-hidden />
         </button>
       }
       trailing={<button className="bar-button strong" onClick={requestFinish}>Finish</button>}
     >
-      <section className="section">
-        <div className="card">
-          <div className="row">
-            <input
-              className="field title"
-              aria-label="Workout name"
-              placeholder="Workout name"
-              value={workout.name}
-              onChange={(event) => edit((draft) => { draft.name = event.target.value; })}
-            />
-          </div>
-          <div className="row">
-            <textarea
-              className="field small"
-              aria-label="Notes"
-              placeholder="Notes"
-              rows={1}
-              value={workout.notes}
-              onChange={(event) => edit((draft) => { draft.notes = event.target.value; })}
-            />
-          </div>
+      <Section>
+        <div className="row">
+          <input
+            className="field title"
+            aria-label="Workout name"
+            placeholder="Workout name"
+            value={workout.name}
+            onChange={(event) => edit((draft) => { draft.name = event.target.value; })}
+          />
         </div>
-      </section>
+        <div className="row">
+          <textarea
+            className="field"
+            aria-label="Notes"
+            placeholder="Notes"
+            rows={1}
+            value={workout.notes}
+            onChange={(event) => edit((draft) => { draft.notes = event.target.value; })}
+          />
+        </div>
+      </Section>
 
       {toTry.length > 0 && (
         <Section
@@ -172,11 +168,9 @@ export function ActiveWorkout({ state, workout }: { state: AppState; workout: Wo
         Add Exercise
       </button>
 
-      <section className="section">
-        <div className="card">
-          <button className="row destructive" onClick={() => setQuestion('discard')}>Discard Workout</button>
-        </div>
-      </section>
+      <Section>
+        <button className="row destructive" onClick={() => setQuestion('discard')}>Discard Workout</button>
+      </Section>
 
       {rankUp && <RankUpToast up={rankUp} onDone={dismiss} />}
 
@@ -241,60 +235,59 @@ interface EntryProps {
 /** One exercise block inside the active workout. */
 function EntrySection({ workoutId, entry, exercise, previous, rank, isFirst, isLast, unit, effort }: EntryProps) {
   const labels = rowLabels(entry.sets);
+  const video = webLink(exercise?.videoURL ?? null);
   return (
-    <section className="section" aria-label={entry.exerciseName}>
-      <div className="card">
-        <div className="entry-header">
-          <div className="grow">
-            <h2>{entry.exerciseName}</h2>
-            {takesDumbbells(exercise) && <DumbbellToggle workoutId={workoutId} entry={entry} />}
-            {exercise?.notes && <p className="caption secondary prewrap">{exercise.notes}</p>}
-          </div>
-          {rank && <RankBadge rank={rank} size={30} />}
-          {webLink(exercise?.videoURL ?? null) && (
-            <a className="icon-button" href={exercise!.videoURL!} target="_blank" rel="noreferrer" aria-label="Watch video">
-              <SquarePlay size={22} aria-hidden />
-            </a>
-          )}
-          <Menu
-            className="icon-button"
-            label={`${entry.exerciseName} options`}
-            items={[
-              { label: 'Move Up', disabled: isFirst, run: () => update((draft) => moveEntry(draft, workoutId, entry.id, -1)) },
-              { label: 'Move Down', disabled: isLast, run: () => update((draft) => moveEntry(draft, workoutId, entry.id, 1)) },
-              { label: 'Remove Exercise', destructive: true, run: () => update((draft) => removeEntry(draft, workoutId, entry.id)) },
-            ]}
-          >
-            <Ellipsis size={22} aria-hidden />
-          </Menu>
+    <Section label={entry.exerciseName}>
+      <div className="entry-header">
+        <div className="grow">
+          <h2>{entry.exerciseName}</h2>
+          {takesDumbbells(exercise) && <DumbbellToggle workoutId={workoutId} entry={entry} />}
+          {exercise?.notes && <p className="caption secondary prewrap">{exercise.notes}</p>}
         </div>
-
-        <div className="set-grid set-head" aria-hidden>
-          <span>Set</span>
-          <span>Previous</span>
-          <span>{unit}</span>
-          <span>Reps</span>
-          <span>{effortTitle(effort)}</span>
-          <Check size={14} />
-        </div>
-        {entry.sets.map((set, index) => (
-          <SetRow
-            key={set.id}
-            workoutId={workoutId}
-            entryId={entry.id}
-            set={set}
-            label={labels[index]}
-            previous={previous[index]}
-            unit={unit}
-            effort={effort}
-          />
-        ))}
-        <button className="row add-set" onClick={() => update((draft) => addSet(draft, workoutId, entry.id))}>
-          <Plus size={16} aria-hidden />
-          Add Set
-        </button>
+        {rank && <RankBadge rank={rank} size={30} />}
+        {video && (
+          <a className="icon-button" href={video} target="_blank" rel="noreferrer" aria-label="Watch video">
+            <SquarePlay size={22} aria-hidden />
+          </a>
+        )}
+        <Menu
+          className="icon-button"
+          label={`${entry.exerciseName} options`}
+          items={[
+            { label: 'Move Up', disabled: isFirst, run: () => update((draft) => moveEntry(draft, workoutId, entry.id, -1)) },
+            { label: 'Move Down', disabled: isLast, run: () => update((draft) => moveEntry(draft, workoutId, entry.id, 1)) },
+            { label: 'Remove Exercise', destructive: true, run: () => update((draft) => removeEntry(draft, workoutId, entry.id)) },
+          ]}
+        >
+          <Ellipsis size={22} aria-hidden />
+        </Menu>
       </div>
-    </section>
+
+      <div className="set-grid set-head" aria-hidden>
+        <span>Set</span>
+        <span>Previous</span>
+        <span>{unit}</span>
+        <span>Reps</span>
+        <span>{effortTitle(effort)}</span>
+        <Check size={14} />
+      </div>
+      {entry.sets.map((set, index) => (
+        <SetRow
+          key={set.id}
+          workoutId={workoutId}
+          entryId={entry.id}
+          set={set}
+          label={labels[index]}
+          previous={previous[index]}
+          unit={unit}
+          effort={effort}
+        />
+      ))}
+      <button className="row add-set" onClick={() => update((draft) => addSet(draft, workoutId, entry.id))}>
+        <Plus size={16} aria-hidden />
+        Add Set
+      </button>
+    </Section>
   );
 }
 
@@ -396,7 +389,6 @@ const SetRow = memo(function SetRow({ workoutId, entryId, set, label, previous, 
 
 /** "80 kg × 8" and, if effort was logged, "@8.5" — two parts so a narrow column can wrap between them. */
 function previousText(previous: SetEntry, unit: WeightUnit, effort: EffortScale): string[] {
-  const reps = previous.reps === null ? '–' : String(previous.reps);
-  const main = previous.weight === null ? `${reps} reps` : `${fmtNumber(fromKg(unit, previous.weight))} ${unit} × ${reps}`;
+  const main = setText(previous, unit);
   return previous.rpe === null ? [main] : [main, `@${effortText(effort, previous.rpe)}`];
 }

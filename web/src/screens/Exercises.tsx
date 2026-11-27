@@ -1,22 +1,22 @@
 import { CirclePlus, Ellipsis, Plus, SquarePlay } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { deleteExercise, searchExercises } from '../lib/exercises';
-import { describeLift, liftRanks, rankSetup, rankTitle, standardFor } from '../lib/ranks';
+import { describeLift, rankSetup, rankTitle, standardFor } from '../lib/ranks';
 import { goBack } from '../lib/router';
 import { update } from '../lib/store';
 import { equipmentTitle, muscleTitle } from '../lib/types';
 import type { AppState, Exercise, MuscleGroup } from '../lib/types';
-import { effortLabel, fmtDate, fromKg, weightText } from '../lib/units';
+import { effortLabel, fmtDate, fromKg, setText, weightText } from '../lib/units';
 import { webLink } from '../lib/videos';
 import { dumbbellWeight, estimatedOneRepMax, sessionsFor, takesDumbbells } from '../lib/workouts';
 import { LineChart } from '../ui/Chart';
-import { MuscleFilterBar, SearchField } from '../ui/controls';
+import { MuscleFilterBar, SearchField, Switch } from '../ui/controls';
 import { Link, LinkRow, Page, Section, ValueRow } from '../ui/layout';
 import { ConfirmDialog, Menu } from '../ui/overlays';
 import { DumbbellToggle, ExerciseLabel } from '../ui/parts';
 import { RankBadge, RankProgress } from '../ui/RankBadge';
+import { useLiftRanks } from '../ui/useLiftRanks';
 import { ExerciseEditor } from './ExerciseEditor';
-import { setText } from './History';
 
 /** The exercise library: built-ins plus your own, searchable. */
 export function Exercises({ state }: { state: AppState }) {
@@ -25,10 +25,8 @@ export function Exercises({ state }: { state: AppState }) {
   const [showEditor, setShowEditor] = useState(false);
   const trimmed = query.trim();
   const results = useMemo(() => searchExercises(state.exercises, query, muscle), [state.exercises, query, muscle]);
-  const ranks = useMemo(
-    () => new Map(liftRanks(state).map((rank) => [rank.exercise.id, rank])),
-    [state.workouts, state.exercises, state.bodyWeights, state.settings.rankStandards],
-  );
+  const ranked = useLiftRanks(state);
+  const ranks = useMemo(() => new Map(ranked.map((rank) => [rank.exercise.id, rank])), [ranked]);
 
   return (
     <Page
@@ -108,10 +106,7 @@ export function ExerciseDetail({ state, exercise }: { state: AppState; exercise:
     })
     .reverse();
   const video = webLink(exercise.videoURL);
-  const rank = useMemo(
-    () => liftRanks(state).find((candidate) => candidate.exercise.id === exercise.id),
-    [state.workouts, state.exercises, state.bodyWeights, state.settings.rankStandards, exercise.id],
-  );
+  const rank = useLiftRanks(state).find((candidate) => candidate.exercise.id === exercise.id);
   const rankWords = rank && describeLift(rank, unit);
   const canBeRanked = standardFor(exercise) !== null;
 
@@ -141,19 +136,14 @@ export function ExerciseDetail({ state, exercise }: { state: AppState; exercise:
             Watch Video
           </a>
         )}
-        <label className="row">
-          Want to try
-          <input
-            className="switch"
-            type="checkbox"
-            role="switch"
-            checked={exercise.wantToTry}
-            onChange={(event) => update((draft) => {
-              const target = draft.exercises.find((candidate) => candidate.id === exercise.id);
-              if (target) target.wantToTry = event.target.checked;
-            })}
-          />
-        </label>
+        <Switch
+          label="Want to try"
+          checked={exercise.wantToTry}
+          onChange={(wantToTry) => update((draft) => {
+            const target = draft.exercises.find((candidate) => candidate.id === exercise.id);
+            if (target) target.wantToTry = wantToTry;
+          })}
+        />
       </Section>
 
       {exercise.notes && (
@@ -164,7 +154,7 @@ export function ExerciseDetail({ state, exercise }: { state: AppState; exercise:
 
       {rank && rankWords && (
         <Section title="Rank">
-          <Link to="/ranks" className="row" label={`Rank: ${rankTitle(rank)}`}>
+          <Link to="/ranks" className="row">
             <RankBadge rank={rank} size={56} decorative />
             <span className="grow" data-tier={rank.tier}>
               <span className="title-line strong">{rankTitle(rank)}</span>

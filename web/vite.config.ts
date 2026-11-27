@@ -24,7 +24,7 @@ function serviceWorker(): Plugin {
       const version = createHash('sha256');
       for (const file of files) version.update(file).update(readFileSync(join(outDir, file)));
       const urls = ['./', ...files.filter((file) => file !== 'index.html').map((file) => `./${file}`)];
-      const source = readFileSync('sw.template.js', 'utf8')
+      const source = readFileSync(new URL('sw.template.js', import.meta.url), 'utf8')
         .replace('__VERSION__', version.digest('hex').slice(0, 12))
         .replace('__FILES__', JSON.stringify(urls));
       writeFileSync(join(outDir, 'sw.js'), source);

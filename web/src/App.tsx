@@ -12,12 +12,14 @@ import { ActiveWorkout } from './screens/ActiveWorkout';
 import { Body } from './screens/Body';
 import { ExerciseDetail, Exercises } from './screens/Exercises';
 import { History, WorkoutDetail } from './screens/History';
-import { Home, ResumeCard } from './screens/Home';
+import { Home } from './screens/Home';
 import { Ranks } from './screens/Ranks';
-import { Settings, StrongImportPage } from './screens/Settings';
+import { Settings } from './screens/settings/Settings';
+import { StrongImportPage } from './screens/settings/StrongImport';
 import { VideoDetail, Videos } from './screens/Videos';
 import { Link, Redirect } from './ui/layout';
 import { ConfirmDialog } from './ui/overlays';
+import { ResumeCard } from './ui/parts';
 
 const TABS = [
   { to: '/', label: 'Workout', icon: Dumbbell, sections: ['', 'workout'] },

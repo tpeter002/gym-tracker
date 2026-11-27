@@ -201,6 +201,13 @@ export function rankSetup(state: AppState): RankSetup | null {
   return bodyKg !== null && standards ? { bodyKg, standards } : null;
 }
 
+/** The choices for the standards setting, as its control lists them. */
+export const STANDARDS_OPTIONS = [
+  { value: '', label: 'Off' },
+  { value: 'men', label: 'Men' },
+  { value: 'women', label: 'Women' },
+] as const;
+
 export interface LiftRank extends Rank {
   exercise: Exercise;
   kind: Standard['kind'];

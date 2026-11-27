@@ -25,7 +25,11 @@ function useModal(onClose: () => void) {
       if (event.target === ref.current) onClose(); // a click on the backdrop
     },
     // The browser closed it anyway (a second Escape can't be cancelled): follow.
-    onClose,
+    // Not while it is open, though: under StrictMode in development the effect
+    // closes and reopens the dialog, and the first close's event arrives after that.
+    onClose: () => {
+      if (!ref.current?.open) onClose();
+    },
   };
 }
 
@@ -128,6 +132,7 @@ export function Menu({ label, className, items, children }: MenuProps) {
     const menu = menuRef.current!;
     const anchor = event.currentTarget.getBoundingClientRect();
     const onRightHalf = anchor.left + anchor.width / 2 > window.innerWidth / 2;
+    // A generous guess at the menu's height, from the sizes .menu has in styles.css: rows of about 41px inside 6px of padding.
     const roomBelow = window.innerHeight - anchor.bottom > 56 + items.length * 46;
     menu.style.left = onRightHalf ? 'auto' : `${Math.max(8, anchor.left)}px`;
     menu.style.right = onRightHalf ? `${Math.max(8, window.innerWidth - anchor.right)}px` : 'auto';

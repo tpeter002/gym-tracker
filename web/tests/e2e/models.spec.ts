@@ -16,7 +16,7 @@ test('until you pick a service, the request is the one every analyzer understand
   const requests = await mockModelAnalyzer(page);
   await page.goto('/#/settings');
   await expect(service(page)).toHaveValue('');
-  await expect(service(page).locator('option')).toHaveText(['Analyzer’s choice', 'Claude (Anthropic)', 'Z.ai (GLM)', 'OpenRouter', 'Gemini (Google)']);
+  await expect(service(page).locator('option')).toHaveText(["Analyzer's choice", 'Claude (Anthropic)', 'Z.ai (GLM)', 'OpenRouter', 'Gemini (Google)']);
   await expect(model(page)).toHaveCount(0);
   await expect(apiKey(page)).toHaveCount(0);
 
@@ -72,7 +72,7 @@ test('pick a service, a model and a key of your own', async ({ page }) => {
   // Without a model name the service's default is asked for; without a key, the analyzer's own is used.
   await page.goto('/#/settings');
   await service(page).selectOption({ label: 'Claude (Anthropic)' });
-  await expect(apiKey(page)).toHaveAttribute('placeholder', 'Using the analyzer’s key');
+  await expect(apiKey(page)).toHaveAttribute('placeholder', "Using the analyzer's key");
   await page.goto('/#/videos');
   await page.getByRole('main').getByRole('link', { name: /3 cable moves/ }).click();
   await page.getByRole('button', { name: 'Identify Again' }).click();
@@ -83,7 +83,7 @@ test('pick a service, a model and a key of your own', async ({ page }) => {
 
   // Handing the choice back to the analyzer drops it from the request again.
   await page.goto('/#/settings');
-  await service(page).selectOption({ label: 'Analyzer’s choice' });
+  await service(page).selectOption({ label: "Analyzer's choice" });
   await page.goto('/#/videos');
   await page.getByRole('main').getByRole('link', { name: /3 cable moves/ }).click();
   await page.getByRole('button', { name: 'Identify Again' }).click();

@@ -1,33 +1,22 @@
 import { useMemo } from 'react';
-import { update } from '../lib/store';
+import { changeSettings } from '../lib/actions';
 import {
-  BODY_REGION_TITLES, BODY_REGIONS, describeLift, DIVISIONS, latestBodyKg, liftRanks, overallRank, rankSetup, rankTitle, stepAfter, TIER_TITLES, TIERS,
+  BODY_REGION_TITLES, BODY_REGIONS, describeLift, DIVISIONS, latestBodyKg, overallRank, rankSetup, rankTitle, STANDARDS_OPTIONS, stepAfter, TIER_TITLES, TIERS,
 } from '../lib/ranks';
 import type { LiftRank, OverallRank } from '../lib/ranks';
-import type { AppState, RankStandards, WeightUnit } from '../lib/types';
+import type { AppState, WeightUnit } from '../lib/types';
 import { weightText } from '../lib/units';
 import { Segmented } from '../ui/controls';
 import { Link, LinkRow, Page, Section } from '../ui/layout';
 import { RankBadge, RankProgress } from '../ui/RankBadge';
-
-export const STANDARDS_OPTIONS = [
-  { value: '', label: 'Off' },
-  { value: 'men', label: 'Men' },
-  { value: 'women', label: 'Women' },
-] as const;
-
-export function chooseStandards(standards: RankStandards | ''): void {
-  update((draft) => {
-    draft.settings.rankStandards = standards;
-  });
-}
+import { useLiftRanks } from '../ui/useLiftRanks';
 
 /** Every ranked lift, strongest first, under one rank for the whole lifter. */
 export function Ranks({ state }: { state: AppState }) {
   const { unit, rankStandards } = state.settings;
   const bodyKg = latestBodyKg(state);
   const isSetUp = rankSetup(state) !== null;
-  const ranks = useMemo(() => liftRanks(state), [state.workouts, state.exercises, state.bodyWeights, rankStandards]);
+  const ranks = useLiftRanks(state);
   const overall = useMemo(() => overallRank(ranks), [ranks]);
 
   return (
@@ -57,7 +46,7 @@ export function Ranks({ state }: { state: AppState }) {
       >
         <div className="row">
           Standards
-          <Segmented label="Strength standards" value={rankStandards} options={STANDARDS_OPTIONS} onChange={chooseStandards} />
+          <Segmented label="Strength standards" value={rankStandards} options={STANDARDS_OPTIONS} onChange={(standards) => changeSettings({ rankStandards: standards })} />
         </div>
         <LinkRow to="/body">
           Body weight
@@ -83,36 +72,33 @@ function Overall({ overall }: { overall: OverallRank }) {
   const rank = overall.rank!;
   const next = stepAfter(rank);
   return (
-    <section className="section" aria-label="Overall rank">
-      <div className="card">
-        <div className="rank-hero" data-tier={rank.tier}>
-          <RankBadge rank={rank} size={104} celebrate decorative />
-          <div className="grow">
-            <span className="caption secondary">Overall</span>
-            <strong>{rankTitle(rank)}</strong>
-            <RankProgress rank={rank} />
-            <span className="caption secondary">{next ? `Next: ${rankTitle(next)}` : 'The top of the ladder'}</span>
-          </div>
+    <Section label="Overall rank" footer="The average of your best push, pull and leg lift.">
+      <div className="rank-hero" data-tier={rank.tier}>
+        <RankBadge rank={rank} size={104} celebrate decorative />
+        <div className="grow">
+          <span className="caption secondary">Overall</span>
+          <strong>{rankTitle(rank)}</strong>
+          <RankProgress rank={rank} />
+          <span className="caption secondary">{next ? `Next: ${rankTitle(next)}` : 'The top of the ladder'}</span>
         </div>
-        {BODY_REGIONS.map((region) => {
-          const best = overall.best[region];
-          return best ? (
-            <Link key={region} to={`/exercises/${best.exercise.id}`} className="row">
-              <span className="rank-region">{BODY_REGION_TITLES[region]}</span>
-              <span className="grow ellipsis">{best.exercise.name}</span>
-              <span className="row-value">{rankTitle(best)}</span>
-              <RankBadge rank={best} size={28} decorative />
-            </Link>
-          ) : (
-            <div key={region} className="row">
-              <span className="rank-region">{BODY_REGION_TITLES[region]}</span>
-              <span className="grow secondary">Nothing ranked yet — it counts as zero</span>
-            </div>
-          );
-        })}
       </div>
-      <div className="section-footer">The average of your best push, pull and leg lift.</div>
-    </section>
+      {BODY_REGIONS.map((region) => {
+        const best = overall.best[region];
+        return best ? (
+          <Link key={region} to={`/exercises/${best.exercise.id}`} className="row">
+            <span className="rank-region">{BODY_REGION_TITLES[region]}</span>
+            <span className="grow ellipsis">{best.exercise.name}</span>
+            <span className="row-value">{rankTitle(best)}</span>
+            <RankBadge rank={best} size={28} decorative />
+          </Link>
+        ) : (
+          <div key={region} className="row">
+            <span className="rank-region">{BODY_REGION_TITLES[region]}</span>
+            <span className="grow secondary">Nothing ranked yet — it counts as zero</span>
+          </div>
+        );
+      })}
+    </Section>
   );
 }
 

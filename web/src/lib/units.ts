@@ -1,4 +1,4 @@
-import type { EffortScale, WeightUnit } from './types';
+import type { EffortScale, SetEntry, WeightUnit } from './types';
 
 // Weights are always stored in kilograms; the unit only affects display and entry.
 const LB_PER_KG = 2.2046226218;
@@ -6,6 +6,12 @@ const LB_PER_KG = 2.2046226218;
 export const fromKg = (unit: WeightUnit, kg: number) => (unit === 'kg' ? kg : kg * LB_PER_KG);
 export const toKg = (unit: WeightUnit, value: number) => (unit === 'kg' ? value : value / LB_PER_KG);
 export const weightText = (unit: WeightUnit, kg: number) => `${fmtNumber(fromKg(unit, kg))} ${unit}`;
+
+/** "80 kg × 8", or "8 reps" for a set without weight. */
+export const setText = (set: SetEntry, unit: WeightUnit) => {
+  const reps = set.reps === null ? '–' : String(set.reps);
+  return set.weight === null ? `${reps} reps` : `${weightText(unit, set.weight)} × ${reps}`;
+};
 
 // Effort is stored as RPE. RIR is the same information read from the other end
 // (RIR = 10 − RPE), so switching scales never loses data.

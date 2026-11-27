@@ -7,7 +7,7 @@ interface PageProps {
   /** Shown in the header (unless `heading` replaces it) and in the browser tab. */
   title: string;
   heading?: ReactNode;
-  /** Big left-aligned title, as on the four tabs. */
+  /** Big left-aligned title, as on the tabs. */
   large?: boolean;
   /** Where Back leads when this page was opened directly. */
   back?: string;
@@ -44,21 +44,24 @@ export function Page({ title, heading, large, back, leading, trailing, children 
 
 interface SectionProps {
   title?: ReactNode;
+  /** Names a section that has no title, for screen readers. */
+  label?: string;
   /** Right-hand side of the header line. */
   aside?: ReactNode;
   footer?: ReactNode;
   children: ReactNode;
 }
 
-export function Section({ title, aside, footer, children }: SectionProps) {
+export function Section({ title, label, aside, footer, children }: SectionProps) {
   const titleId = useId();
   return (
-    <section className="section" aria-labelledby={title ? titleId : undefined}>
+    <section className="section" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : label}>
       {(title || aside) && (
-        <h2 className="section-header">
-          <span id={titleId}>{title}</span>
+        <div className="section-header">
+          {/* Only the title is the heading: a count or a button beside it is not part of the section's name. */}
+          {title && <h2 id={titleId}>{title}</h2>}
           {aside && <span>{aside}</span>}
-        </h2>
+        </div>
       )}
       <div className="card">{children}</div>
       {footer && <div className="section-footer">{footer}</div>}

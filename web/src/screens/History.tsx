@@ -2,18 +2,20 @@ import { Ellipsis, History as HistoryIcon, RotateCw, TrendingUp } from 'lucide-r
 import { useEffect, useMemo, useState } from 'react';
 import { requestStart } from '../lib/actions';
 import { connections, loadConnections, sending, sendWorkout } from '../lib/exports';
-import { liftRanks, rankTitle } from '../lib/ranks';
+import { rankTitle } from '../lib/ranks';
 import { goBack } from '../lib/router';
 import { update, useSignal } from '../lib/store';
 import { EXPORT_TARGET_TITLES, EXPORT_TARGETS } from '../lib/types';
-import type { AppState, SetEntry, WeightUnit, Workout } from '../lib/types';
-import { effortLabel, fmtCount, fmtDateTime, fmtDuration, fmtMonthYear, fmtNumber, fromKg, weightText } from '../lib/units';
+import type { AppState, Workout } from '../lib/types';
+import { effortLabel, fmtCount, fmtDateTime, fmtDuration, fmtMonthYear, fmtNumber, fromKg, setText } from '../lib/units';
+import { webLink } from '../lib/videos';
 import { deleteWorkout, doneSets, durationSeconds, finishedWorkouts, rowLabels, takesDumbbells, volumeKg } from '../lib/workouts';
 import { EmptyState, Link, Page, Section, ValueRow } from '../ui/layout';
 import { Spinner } from '../ui/controls';
 import { ConfirmDialog, Menu } from '../ui/overlays';
 import { DumbbellToggle, WorkoutRow } from '../ui/parts';
 import { RankBadge } from '../ui/RankBadge';
+import { useLiftRanks } from '../ui/useLiftRanks';
 
 /** Every finished workout, newest first, grouped by month. */
 export function History({ state }: { state: AppState }) {
@@ -43,11 +45,6 @@ export function History({ state }: { state: AppState }) {
   );
 }
 
-export const setText = (set: SetEntry, unit: WeightUnit) => {
-  const reps = set.reps === null ? '–' : String(set.reps);
-  return set.weight === null ? `${reps} reps` : `${weightText(unit, set.weight)} × ${reps}`;
-};
-
 const EXPORT_STATUS = { waiting: 'Waiting to be sent', sent: 'Sent', failed: 'Not sent' } as const;
 
 /** Whether the workout is on Strava and Garmin Connect, with a way to send it or try again. */
@@ -72,6 +69,8 @@ function Sharing({ workout }: { workout: Workout }) {
       {targets.map((target) => {
         const state = workout.exports?.[target];
         const name = EXPORT_TARGET_TITLES[target];
+        // The address is the analyzer's word for it; only a web address becomes a link.
+        const link = state?.status === 'sent' ? webLink(state.url ?? null) : null;
         return (
           <div key={target} className="row">
             <span className="grow">
@@ -80,8 +79,8 @@ function Sharing({ workout }: { workout: Workout }) {
             </span>
             {busy.has(`${workout.id}:${target}`) ? <Spinner /> : (
               <>
-                {state?.status === 'sent' && state.url && (
-                  <a className="bar-button small" href={state.url} target="_blank" rel="noreferrer" aria-label={`Open on ${name}`}>Open</a>
+                {link && (
+                  <a className="bar-button small" href={link} target="_blank" rel="noreferrer" aria-label={`Open on ${name}`}>Open</a>
                 )}
                 {state?.status !== 'sent' && status?.[target].connected && (
                   <button className="bar-button small" onClick={() => void sendWorkout(workout.id, target)}>
@@ -105,10 +104,11 @@ export function WorkoutDetail({ state, workout }: { state: AppState; workout: Wo
   const volume = volumeKg(workout);
   const known = useMemo(() => new Map(state.exercises.map((exercise) => [exercise.id, exercise])), [state.exercises]);
   // Each lift's rank as it stood once this workout was done, and just before it — the difference is what the workout earned.
+  const ranksAfter = useLiftRanks(state, { until: workout.startedAt });
+  const ranksUntil = useLiftRanks(state, { until: workout.startedAt - 1 });
   const [ranks, ranksBefore] = useMemo(
-    () => [workout.startedAt, workout.startedAt - 1].map((until) =>
-      new Map(liftRanks(state, { until }).map((rank) => [rank.exercise.id, rank]))),
-    [state.workouts, state.exercises, state.bodyWeights, state.settings.rankStandards, workout.startedAt],
+    () => [ranksAfter, ranksUntil].map((list) => new Map(list.map((rank) => [rank.exercise.id, rank]))),
+    [ranksAfter, ranksUntil],
   );
 
   return (
@@ -160,9 +160,7 @@ export function WorkoutDetail({ state, workout }: { state: AppState; workout: Wo
             )}
             {entry.sets.map((set, index) => (
               <div key={set.id} className="row numeric">
-                <span className={set.isWarmup ? 'warm small' : 'secondary small'} style={{ width: 20, fontWeight: 600 }}>
-                  {labels[index]}
-                </span>
+                <span className={set.isWarmup ? 'set-number warm small' : 'set-number secondary small'}>{labels[index]}</span>
                 <span>{setText(set, unit)}</span>
                 {set.rpe !== null && <span className="row-value small">{effortLabel(effort, set.rpe)}</span>}
               </div>

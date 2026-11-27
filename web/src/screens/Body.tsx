@@ -116,7 +116,7 @@ export function Body({ state }: { state: AppState }) {
           title="Delete this weigh-in?"
           message={`${weightText(unit, toDelete.kg)} on ${fmtDate(toDelete.date)}`}
           actions={[{
-            label: 'Delete',
+            label: 'Delete Weigh-in',
             destructive: true,
             run: () => update((draft) => {
               draft.bodyWeights = draft.bodyWeights.filter((entry) => entry.id !== toDelete.id);

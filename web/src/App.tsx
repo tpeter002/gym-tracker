@@ -46,7 +46,10 @@ function screenFor(route: string[], state: AppState): ReactNode {
     case 'history': {
       if (!id) return <History state={state} />;
       const workout = state.workouts.find((candidate) => candidate.id === id && candidate.endedAt !== null);
-      return workout ? <WorkoutDetail state={state} workout={workout} /> : <Redirect to="/history" />;
+      if (!workout) return <Redirect to="/history" />;
+      // key: the editor remembers how the workout was when it opened; another workout is another edit.
+      if (route[2] === 'edit') return <ActiveWorkout key={workout.id} state={state} workout={workout} editing />;
+      return <WorkoutDetail state={state} workout={workout} />;
     }
     case 'exercises': {
       if (!id) return <Exercises state={state} />;
@@ -95,7 +98,8 @@ export function App() {
     return () => document.removeEventListener('visibilitychange', sweep);
   }, []);
 
-  const frame = ['app', section === 'workout' && 'no-tabs', showResumeBar && 'has-resume-bar'].filter(Boolean).join(' ');
+  const isLogging = section === 'workout' || (section === 'history' && route[2] === 'edit');
+  const frame = ['app', isLogging && 'no-tabs', showResumeBar && 'has-resume-bar'].filter(Boolean).join(' ');
 
   return (
     <div className={frame}>

@@ -129,10 +129,11 @@ export function moveEntry(state: AppState, workoutId: string, entryId: string, o
 }
 
 /** The exercise as it was logged in the most recent finished workout containing it (with a completed set). */
-export function previousEntry(workouts: readonly Workout[], exerciseId: string): WorkoutEntry | null {
+export function previousEntry(workouts: readonly Workout[], exerciseId: string, before = Infinity): WorkoutEntry | null {
   let latest: { startedAt: number; entry: WorkoutEntry } | null = null;
   for (const workout of workouts) {
-    if (workout.endedAt === null) continue;
+    // `before`: for a workout being edited afterwards, "last time" is the session before it, not itself or a later one.
+    if (workout.endedAt === null || workout.startedAt >= before) continue;
     for (const entry of workout.entries) {
       if (entry.exerciseId !== exerciseId || !entry.sets.some((set) => set.isDone)) continue;
       if (!latest || workout.startedAt > latest.startedAt) latest = { startedAt: workout.startedAt, entry };
@@ -146,8 +147,8 @@ export function previousEntry(workouts: readonly Workout[], exerciseId: string):
  * exercise. With `both` given, their weights are said the way the asking
  * entry counts its dumbbells, so "previous" always lines up with what is typed.
  */
-export function previousSets(workouts: readonly Workout[], exerciseId: string, both?: boolean): SetEntry[] {
-  const last = previousEntry(workouts, exerciseId);
+export function previousSets(workouts: readonly Workout[], exerciseId: string, both?: boolean, before = Infinity): SetEntry[] {
+  const last = previousEntry(workouts, exerciseId, before);
   if (!last) return [];
   const done = last.sets.filter((set) => set.isDone);
   const lastBoth = last.bothDumbbells === true;
@@ -161,10 +162,8 @@ export const hasCompletedSets = (workout: Workout) =>
 export const hasOpenSets = (workout: Workout) =>
   workout.entries.some((entry) => entry.sets.some((set) => !set.isDone));
 
-/** Drops unticked sets and empty exercises, then closes the workout. */
-export function finishWorkout(state: AppState, workoutId: string, endedAt = Date.now()): void {
-  const workout = findWorkout(state, workoutId);
-  if (!workout) return;
+/** What a workout is left as once it is done with: only what was ticked, a name, and nothing it did still "to try". */
+function settle(state: AppState, workout: Workout): void {
   for (const entry of workout.entries) entry.sets = entry.sets.filter((set) => set.isDone);
   workout.entries = workout.entries.filter((entry) => entry.sets.length > 0);
 
@@ -173,7 +172,45 @@ export function finishWorkout(state: AppState, workoutId: string, endedAt = Date
     if (exercise.wantToTry && performed.has(exercise.id)) exercise.wantToTry = false;
   }
   if (!workout.name.trim()) workout.name = defaultWorkoutName(workout.startedAt);
+}
+
+/** Drops unticked sets and empty exercises, then closes the workout. */
+export function finishWorkout(state: AppState, workoutId: string, endedAt = Date.now()): void {
+  const workout = findWorkout(state, workoutId);
+  if (!workout) return;
+  settle(state, workout);
   workout.endedAt = endedAt;
+}
+
+// A finished workout can be opened again to put a wrong number right. It is
+// edited in place, with the same tools as a running one, and stays finished.
+
+/** Ends an edit of a finished workout: the same tidying as finishing, without touching when it ended. */
+export function finishEditing(state: AppState, workoutId: string): void {
+  const workout = findWorkout(state, workoutId);
+  if (workout && workout.endedAt !== null) settle(state, workout);
+}
+
+/** Puts a workout back as it was when the edit began. */
+export function restoreWorkout(state: AppState, snapshot: Workout): void {
+  const index = state.workouts.findIndex((workout) => workout.id === snapshot.id);
+  if (index >= 0) state.workouts[index] = snapshot;
+}
+
+/**
+ * Moves a finished workout to another start (it keeps its length), or gives it
+ * another end (which changes its length). An end at or before the start is refused.
+ */
+export function setWorkoutTimes(state: AppState, workoutId: string, times: { startedAt?: number; endedAt?: number }): void {
+  const workout = findWorkout(state, workoutId);
+  if (!workout || workout.endedAt === null) return;
+  if (times.startedAt !== undefined && Number.isFinite(times.startedAt)) {
+    workout.endedAt += times.startedAt - workout.startedAt;
+    workout.startedAt = times.startedAt;
+  }
+  if (times.endedAt !== undefined && Number.isFinite(times.endedAt) && times.endedAt > workout.startedAt) {
+    workout.endedAt = times.endedAt;
+  }
 }
 
 export function deleteWorkout(state: AppState, workoutId: string): void {

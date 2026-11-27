@@ -104,6 +104,22 @@ export function toDateInputValue(time: number): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/** Local date and time as the YYYY-MM-DDTHH:MM a date-and-time input uses. */
+export function toDateTimeInputValue(time: number): string {
+  const date = new Date(time);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${toDateInputValue(time)}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** null for anything that isn't a full date and time (a field being cleared, or half typed). */
+export function fromDateTimeInputValue(value: string): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
+  if (!match) return null;
+  const [year, month, day, hour, minute] = match.slice(1).map(Number);
+  const time = new Date(year, month - 1, day, hour, minute).getTime();
+  return Number.isFinite(time) ? time : null;
+}
+
 /** Today keeps the current time of day; any other day lands on its noon. */
 export function fromDateInputValue(value: string, now = Date.now()): number | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);

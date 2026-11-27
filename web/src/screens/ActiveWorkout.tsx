@@ -8,10 +8,14 @@ import { update } from '../lib/store';
 import { RANK_SETTLE_MS } from '../lib/timing';
 import { toTryFor } from '../lib/suggestions';
 import type { AppState, EffortScale, Exercise, SetEntry, WeightUnit, Workout, WorkoutEntry } from '../lib/types';
-import { effortChoices, effortText, effortTitle, effortValue, fmtNumber, fromKg, rpeFrom, setText, toKg } from '../lib/units';
+import { EXPORT_TARGET_TITLES, EXPORT_TARGETS } from '../lib/types';
 import {
-  addExercise, addSet, deleteSet, deleteWorkout, finishWorkout, hasCompletedSets, hasOpenSets,
-  moveEntry, previousSets, removeEntry, rowLabels, takesDumbbells, updateSet,
+  effortChoices, effortText, effortTitle, effortValue, fmtNumber, fromDateTimeInputValue, fromKg, rpeFrom, setText,
+  toDateTimeInputValue, toKg,
+} from '../lib/units';
+import {
+  addExercise, addSet, deleteSet, deleteWorkout, finishEditing, finishWorkout, hasCompletedSets, hasOpenSets,
+  moveEntry, previousSets, removeEntry, restoreWorkout, rowLabels, setWorkoutTimes, takesDumbbells, updateSet,
 } from '../lib/workouts';
 import { webLink } from '../lib/videos';
 import { DecimalField, IntegerField } from '../ui/controls';
@@ -59,15 +63,19 @@ function useLiveRanks(state: AppState): { ranks: Map<string, LiftRank>; rankUp: 
 }
 
 /**
- * The in-progress workout: exercises, their sets, and the finish / discard flow.
+ * A workout being logged: exercises, their sets, and the finish / discard flow.
  * Leaving the page only minimises it; the workout keeps running.
+ *
+ * With `editing` it is a finished workout opened again to put something right:
+ * the same tools, Cancel and Done in place of Minimize and Finish, and its
+ * start and end can be changed too.
  */
-export function ActiveWorkout({ state, workout }: { state: AppState; workout: Workout }) {
+export function ActiveWorkout({ state, workout, editing = false }: { state: AppState; workout: Workout; editing?: boolean }) {
   const [showPicker, setShowPicker] = useState(false);
   const [question, setQuestion] = useState<'finish' | 'discard' | 'nothing' | null>(null);
   const exercises = useMemo(() => new Map(state.exercises.map((exercise) => [exercise.id, exercise])), [state.exercises]);
   // Saved-video exercises that suit what is being trained today, so they aren't forgotten again.
-  const toTry = useMemo(() => toTryFor(state, workout), [state.exercises, workout.entries]);
+  const toTry = useMemo(() => (editing ? [] : toTryFor(state, workout)), [state.exercises, workout.entries, editing]);
   const { ranks, rankUp, dismiss } = useLiveRanks(state);
   const edit = (change: (draft: Workout) => void) =>
     update((draft) => {
@@ -75,7 +83,24 @@ export function ActiveWorkout({ state, workout }: { state: AppState; workout: Wo
       if (current) change(current);
     });
 
+  // The workout as it was when the edit began, for Cancel. The state is never changed in place, so keeping it is enough.
+  const original = useRef(workout);
+  const cancelled = useRef(false);
+  // Leaving by any road but Cancel ends the edit the way Done does, so a finished workout is never left with unticked sets.
+  useEffect(() => {
+    if (!editing) return;
+    const id = workout.id;
+    return () => {
+      if (!cancelled.current) update((draft) => finishEditing(draft, id));
+    };
+  }, [editing, workout.id]);
+
   const finish = () => {
+    if (editing) {
+      update((draft) => finishEditing(draft, workout.id));
+      navigate(`/history/${workout.id}`, { replace: true });
+      return;
+    }
     update((draft) => {
       finishWorkout(draft, workout.id);
       queueExports(draft, workout.id); // for the services set to get workouts automatically
@@ -84,24 +109,35 @@ export function ActiveWorkout({ state, workout }: { state: AppState; workout: Wo
     navigate('/history', { replace: true });
   };
 
+  const cancel = () => {
+    cancelled.current = true;
+    update((draft) => restoreWorkout(draft, original.current));
+    goBack(`/history/${workout.id}`);
+  };
+
   const requestFinish = () => {
     if (!hasCompletedSets(workout)) setQuestion('nothing');
     else if (hasOpenSets(workout)) setQuestion('finish');
     else finish();
   };
 
+  // Where the workout has gone already: the copy there doesn't follow an edit made here.
+  const sentTo = EXPORT_TARGETS.filter((target) => workout.exports?.[target]?.status === 'sent').map((target) => EXPORT_TARGET_TITLES[target]);
+
   return (
     <Page
-      title={workout.name || 'Workout'}
-      heading={<ElapsedTime since={workout.startedAt} />}
-      leading={
+      title={editing ? 'Edit Workout' : workout.name || 'Workout'}
+      heading={editing ? undefined : <ElapsedTime since={workout.startedAt} />}
+      leading={editing ? (
+        <button className="bar-button" onClick={cancel}>Cancel</button>
+      ) : (
         <button className="bar-button" aria-label="Minimize" onClick={() => goBack('/')}>
           <ChevronDown size={24} aria-hidden />
         </button>
-      }
-      trailing={<button className="bar-button strong" onClick={requestFinish}>Finish</button>}
+      )}
+      trailing={<button className="bar-button strong" onClick={requestFinish}>{editing ? 'Done' : 'Finish'}</button>}
     >
-      <Section>
+      <Section footer={editing && sentTo.length > 0 && `Already sent to ${sentTo.join(' and ')}: what you change here stays in this app.`}>
         <div className="row">
           <input
             className="field title"
@@ -121,6 +157,35 @@ export function ActiveWorkout({ state, workout }: { state: AppState; workout: Wo
             onChange={(event) => edit((draft) => { draft.notes = event.target.value; })}
           />
         </div>
+        {editing && workout.endedAt !== null && (
+          <>
+            <label className="row">
+              Started
+              <input
+                className="field"
+                type="datetime-local"
+                value={toDateTimeInputValue(workout.startedAt)}
+                onChange={(event) => {
+                  const startedAt = fromDateTimeInputValue(event.target.value);
+                  if (startedAt !== null) update((draft) => setWorkoutTimes(draft, workout.id, { startedAt }));
+                }}
+              />
+            </label>
+            <label className="row">
+              Finished
+              <input
+                className="field"
+                type="datetime-local"
+                min={toDateTimeInputValue(workout.startedAt + 60_000)}
+                value={toDateTimeInputValue(workout.endedAt)}
+                onChange={(event) => {
+                  const endedAt = fromDateTimeInputValue(event.target.value);
+                  if (endedAt !== null) update((draft) => setWorkoutTimes(draft, workout.id, { endedAt }));
+                }}
+              />
+            </label>
+          </>
+        )}
       </Section>
 
       {toTry.length > 0 && (
@@ -153,7 +218,9 @@ export function ActiveWorkout({ state, workout }: { state: AppState; workout: Wo
           workoutId={workout.id}
           entry={entry}
           exercise={entry.exerciseId ? exercises.get(entry.exerciseId) : undefined}
-          previous={entry.exerciseId ? previousSets(state.workouts, entry.exerciseId, entry.bothDumbbells === true) : []}
+          previous={entry.exerciseId
+            ? previousSets(state.workouts, entry.exerciseId, entry.bothDumbbells === true, editing ? workout.startedAt : undefined)
+            : []}
           rank={entry.exerciseId ? ranks.get(entry.exerciseId) : undefined}
           isFirst={index === 0}
           isLast={index === workout.entries.length - 1}
@@ -167,11 +234,14 @@ export function ActiveWorkout({ state, workout }: { state: AppState; workout: Wo
         Add Exercise
       </button>
 
-      <Section>
-        <button className="row destructive" onClick={() => setQuestion('discard')}>Discard Workout</button>
-      </Section>
+      {!editing && (
+        <Section>
+          <button className="row destructive" onClick={() => setQuestion('discard')}>Discard Workout</button>
+        </Section>
+      )}
 
-      {rankUp && <RankUpToast up={rankUp} onDone={dismiss} />}
+      {/* Putting an old number right is not an achievement to celebrate. */}
+      {rankUp && !editing && <RankUpToast up={rankUp} onDone={dismiss} />}
 
       {showPicker && (
         <ExercisePicker
@@ -182,10 +252,10 @@ export function ActiveWorkout({ state, workout }: { state: AppState; workout: Wo
       )}
       {question === 'finish' && (
         <ConfirmDialog
-          title="Finish workout?"
-          message="Sets you haven't ticked off won't be saved."
-          actions={[{ label: 'Finish', run: finish }]}
-          cancelLabel="Keep Going"
+          title={editing ? 'Save the changes?' : 'Finish workout?'}
+          message={editing ? "Sets you haven't ticked off will be removed." : "Sets you haven't ticked off won't be saved."}
+          actions={[{ label: editing ? 'Save' : 'Finish', run: finish }]}
+          cancelLabel={editing ? 'Keep Editing' : 'Keep Going'}
           onClose={() => setQuestion(null)}
         />
       )}
@@ -207,8 +277,10 @@ export function ActiveWorkout({ state, workout }: { state: AppState; workout: Wo
       )}
       {question === 'nothing' && (
         <ConfirmDialog
-          title="Nothing logged yet"
-          message="Tick off at least one set to finish, or discard the workout."
+          title={editing ? 'Nothing left in this workout' : 'Nothing logged yet'}
+          message={editing
+            ? 'A workout needs at least one ticked set. Tick one, or cancel and delete the workout from its page.'
+            : 'Tick off at least one set to finish, or discard the workout.'}
           cancelLabel="OK"
           onClose={() => setQuestion(null)}
         />

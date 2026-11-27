@@ -114,6 +114,16 @@ Two other ways in:
 - Opening `<app address>/?url=<link>` saves the link — handy as a bookmark in the browser the app runs in.
 - On Android, an installed copy is listed in the share sheet (`share_target` in the manifest). Untested.
 
+## Editing a finished workout
+
+A finished workout's page has **Edit Workout** in its menu. It opens the workout in the same screen
+it was logged in: change a number, add or remove a set or an exercise, rename it, and move its start
+or change when it ended. **Done** keeps the changes — as does leaving the page any other way —
+and **Cancel** puts everything back as it was. As when finishing, only ticked sets are kept.
+
+The "Previous" column shows the session before the one being edited. Records, ranks and "Up next"
+follow the change by themselves; a copy already sent to Strava or Garmin Connect does not.
+
 ## Dumbbell weights
 
 Dumbbell weights get typed in two ways — one dumbbell, or the pair together — sometimes by the same

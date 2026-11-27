@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { requestStart } from '../lib/actions';
 import { connections, loadConnections, sending, sendWorkout } from '../lib/exports';
 import { rankTitle } from '../lib/ranks';
-import { goBack } from '../lib/router';
+import { goBack, navigate } from '../lib/router';
 import { useSignal } from '../lib/signal';
 import { update } from '../lib/store';
 import { EXPORT_TARGET_TITLES, EXPORT_TARGETS } from '../lib/types';
@@ -120,7 +120,10 @@ export function WorkoutDetail({ state, workout }: { state: AppState; workout: Wo
         <Menu
           className="bar-button"
           label="Workout options"
-          items={[{ label: 'Delete Workout', destructive: true, run: () => setConfirmDelete(true) }]}
+          items={[
+            { label: 'Edit Workout', run: () => navigate(`/history/${workout.id}/edit`) },
+            { label: 'Delete Workout', destructive: true, run: () => setConfirmDelete(true) },
+          ]}
         >
           <Ellipsis size={24} aria-hidden />
         </Menu>
@@ -135,7 +138,9 @@ export function WorkoutDetail({ state, workout }: { state: AppState; workout: Wo
       </Section>
 
       {workout.entries.map((entry) => {
-        const labels = rowLabels(entry.sets);
+        // Only ticked sets count; an edit that was interrupted may have left others behind.
+        const sets = entry.sets.filter((set) => set.isDone);
+        const labels = rowLabels(sets);
         const exercise = entry.exerciseId !== null ? known.get(entry.exerciseId) : undefined;
         const rank = exercise && ranks.get(exercise.id);
         const before = exercise && ranksBefore.get(exercise.id);
@@ -159,7 +164,7 @@ export function WorkoutDetail({ state, workout }: { state: AppState; workout: Wo
                 )}
               </div>
             )}
-            {entry.sets.map((set, index) => (
+            {sets.map((set, index) => (
               <div key={set.id} className="row numeric">
                 <span className={set.isWarmup ? 'set-number warm small' : 'set-number secondary small'}>{labels[index]}</span>
                 <span>{setText(set, unit)}</span>

@@ -294,6 +294,37 @@ export function overallRank(ranks: readonly LiftRank[]): OverallRank {
   return { rank: ranks.length > 0 ? rankFor(total / BODY_REGIONS.length) : null, best };
 }
 
+/** The parts of the body that are ranked one by one, from the top of the body down. */
+export const BODY_PARTS = [
+  'shoulders', 'chest', 'back', 'biceps', 'triceps', 'forearms', 'core', 'glutes', 'quads', 'hamstrings', 'calves',
+] as const satisfies readonly MuscleGroup[];
+export type BodyPart = (typeof BODY_PARTS)[number];
+
+export interface BodyPartRank {
+  part: BodyPart;
+  /** The strongest ranked lift listed under this part; null when there is none. */
+  best: LiftRank | null;
+  /** How many ranked lifts are listed under it. */
+  lifts: number;
+}
+
+/**
+ * A rank for each part of the body: that of its best lift, as the overall
+ * rank takes the best of push, pull and legs. A lift counts for the one
+ * muscle it is listed under — a bench press for the chest, not the triceps.
+ * In the order of BODY_PARTS.
+ */
+export function bodyPartRanks(ranks: readonly LiftRank[]): BodyPartRank[] {
+  const found = new Map<MuscleGroup, BodyPartRank>(BODY_PARTS.map((part) => [part, { part, best: null, lifts: 0 }]));
+  for (const rank of ranks) {
+    const entry = found.get(rank.exercise.muscle);
+    if (!entry) continue; // full-body lifts and cardio belong to no one part
+    entry.lifts++;
+    if (!entry.best || rank.score > entry.best.score) entry.best = rank;
+  }
+  return [...found.values()];
+}
+
 export interface RankUp {
   exercise: Exercise;
   /** null when the exercise had no rank before. */

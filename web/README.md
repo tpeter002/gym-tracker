@@ -200,6 +200,13 @@ It needs two things, both on the Ranks page: which standards to measure against 
 lift counts for more at a lower body weight. The overall rank is the average of your best push, pull
 and leg lift; a part of the body with nothing ranked counts as zero.
 
+**By body part** shows the same ranks on the body: shoulders, chest, back, biceps, triceps, forearms,
+core, glutes, quads, hamstrings and calves each take the rank of their best lift, in a list (strongest
+first) and on a drawing of the body from the front and the back, each part in its tier's colour and
+the ones with nothing ranked as outlines. A lift counts for the one muscle the exercise is listed
+under, so a bench press colours the chest and not the triceps. The drawing is made in code
+(`src/ui/BodyMap.tsx`).
+
 In a running workout each ranked lift shows its emblem, and a set that lifts it a step is celebrated
 on the spot. A finished workout's page shows, for each of its lifts, the rank as it stood once that
 workout was done — and "Up from Gold II" or "First rank" where the workout earned it. (Past ranks

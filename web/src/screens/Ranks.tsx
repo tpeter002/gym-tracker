@@ -1,12 +1,13 @@
 import { useMemo } from 'react';
 import { changeSettings } from '../lib/actions';
 import {
-  describeLift, DIVISIONS, latestBodyKg, overallRank, rankSetup, rankTitle, STANDARDS_OPTIONS, stepAfter, TIER_TITLES, TIERS,
+  bodyPartRanks, describeLift, DIVISIONS, latestBodyKg, overallRank, rankSetup, rankTitle, STANDARDS_OPTIONS, stepAfter, TIER_TITLES, TIERS,
 } from '../lib/ranks';
-import type { LiftRank, OverallRank } from '../lib/ranks';
-import { BODY_REGION_TITLES, BODY_REGIONS } from '../lib/types';
+import type { BodyPartRank, LiftRank, OverallRank } from '../lib/ranks';
+import { BODY_REGION_TITLES, BODY_REGIONS, muscleTitle } from '../lib/types';
 import type { AppState, WeightUnit } from '../lib/types';
 import { weightText } from '../lib/units';
+import { BodyMap } from '../ui/BodyMap';
 import { Segmented } from '../ui/controls';
 import { Link, LinkRow, Page, Section } from '../ui/layout';
 import { RankBadge, RankProgress } from '../ui/RankBadge';
@@ -30,6 +31,8 @@ export function Ranks({ state }: { state: AppState }) {
       )}
 
       {overall.rank && <Overall overall={overall} />}
+
+      {ranks.length > 0 && <BodyParts ranks={ranks} />}
 
       {isSetUp && ranks.length === 0 && (
         <p className="lead">Nothing is ranked yet. Finish a workout with a weighted lift, push-ups or pull-ups in it and its rank shows up here.</p>
@@ -99,6 +102,45 @@ function Overall({ overall }: { overall: OverallRank }) {
           </div>
         );
       })}
+    </Section>
+  );
+}
+
+/** The body drawn with each part in the colour of its rank, and the same as a list, strongest first. */
+function BodyParts({ ranks }: { ranks: readonly LiftRank[] }) {
+  const parts = useMemo(() => bodyPartRanks(ranks), [ranks]);
+  const ranked = parts
+    .filter((entry): entry is BodyPartRank & { best: LiftRank } => entry.best !== null)
+    .sort((a, b) => b.best.score - a.best.score);
+  const unranked = parts.filter((entry) => entry.best === null);
+  if (ranked.length === 0) return null;
+
+  return (
+    <Section
+      title="By body part"
+      footer="Each part of the body takes the rank of its best lift. A lift counts for the one muscle it is listed under: a bench press colours the chest, not the triceps."
+    >
+      <div className="body-map-block">
+        <BodyMap tiers={Object.fromEntries(parts.map((entry) => [entry.part, entry.best?.tier ?? null]))} />
+      </div>
+      {ranked.map(({ part, best, lifts }) => (
+        <Link key={part} to={`/exercises/${best.exercise.id}`} className="row">
+          <RankBadge rank={best} size={28} decorative />
+          <span className="grow">
+            <span className="title-line">{muscleTitle(part)}</span>
+            <span className="sub">{best.exercise.name}{lifts > 1 ? ` · best of ${lifts} lifts` : ''}</span>
+          </span>
+          <span className="row-value">{rankTitle(best)}</span>
+        </Link>
+      ))}
+      {unranked.length > 0 && (
+        <div className="row">
+          <span className="grow">
+            <span className="title-line secondary">Not ranked yet</span>
+            <span className="sub">{unranked.map((entry) => muscleTitle(entry.part)).join(', ')}</span>
+          </span>
+        </div>
+      )}
     </Section>
   );
 }

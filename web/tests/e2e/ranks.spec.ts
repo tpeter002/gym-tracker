@@ -13,6 +13,7 @@ const standards = (page: Page) => page.getByRole('radiogroup', { name: 'Strength
 const choose = (page: Page, option: 'Off' | 'Men' | 'Women') => standards(page).getByText(option, { exact: true }).click();
 const overall = (page: Page) => page.getByRole('region', { name: 'Overall rank' });
 const lifts = (page: Page) => page.getByRole('region', { name: 'Lifts' });
+const bodyParts = (page: Page) => page.getByRole('region', { name: 'By body part' });
 const rankUp = (page: Page) => page.getByRole('status').filter({ hasText: /Rank up|First rank/ });
 
 /** Demo history with the men's standards switched on; ends on the Ranks page. */
@@ -91,6 +92,42 @@ test('nothing is ranked until standards are chosen and a body weight is logged',
   await expect(page.getByRole('link', { name: /Body weight\s*80 kg/ })).toBeVisible();
   await expect(page.getByText(/Nothing is ranked yet\./)).toBeVisible();
   await expect(overall(page)).toHaveCount(0);
+  await expect(bodyParts(page)).toHaveCount(0);
+});
+
+test('each part of the body has the rank of its best lift, in a list and on a drawing', async ({ page }) => {
+  await seedRanked(page);
+
+  // The list, strongest first. The demo lifter has two back lifts and two for the quads.
+  const rows = bodyParts(page).getByRole('link');
+  await expect(rows).toHaveCount(7);
+  await expect(rows.first()).toContainText('Shoulders');
+  await expect(rows.first()).toContainText('Overhead Press (Dumbbell)');
+  await expect(rows.first()).toContainText('Platinum I');
+  const chest = bodyParts(page).getByRole('link', { name: /Chest/ });
+  await expect(chest).toContainText('Bench Press (Barbell)');
+  await expect(chest).toContainText('Gold III');
+  await expect(bodyParts(page).getByRole('link', { name: /Back/ })).toContainText('Bent Over Row (Barbell) · best of 2 lifts');
+  await expect(rows.last()).toContainText(/Quads|Triceps/); // both Gold I, the weakest
+  // What has no ranked lift is named, not left out.
+  await expect(bodyParts(page).getByText('Not ranked yet')).toBeVisible();
+  await expect(bodyParts(page).getByText('Forearms, Core, Glutes & Hips, Calves')).toBeVisible();
+
+  // The drawing: every ranked part carries its tier and is filled with that tier's colour; the rest are outlines.
+  const drawn = (part: string) => bodyParts(page).locator(`.body-map [data-part="${part}"]`);
+  await expect(drawn('chest')).toHaveCount(2);
+  await expect(drawn('shoulders')).toHaveCount(4); // seen from the front and from the back
+  for (const shape of await drawn('chest').all()) await expect(shape).toHaveAttribute('data-tier', 'gold');
+  for (const shape of await drawn('shoulders').all()) await expect(shape).toHaveAttribute('data-tier', 'platinum');
+  const fill = (part: string) => drawn(part).first().evaluate((shape) => getComputedStyle(shape).fill);
+  expect(await fill('chest')).toBe('rgb(224, 165, 26)');
+  expect(await fill('shoulders')).toBe('rgb(79, 179, 165)');
+  expect(await fill('calves')).toBe('none');
+  await expect(drawn('calves').first()).not.toHaveAttribute('data-tier', /.*/);
+
+  // A part opens the lift its rank rests on.
+  await chest.click();
+  await expect(page.getByRole('heading', { name: 'Bench Press (Barbell)', level: 1 })).toBeVisible();
 });
 
 test('every ranked lift is listed strongest first under an overall rank', async ({ page }) => {

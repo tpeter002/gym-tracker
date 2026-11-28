@@ -4,8 +4,8 @@ import { newExercise, seedLibrary } from '../../src/lib/exercises';
 import { uid } from '../../src/lib/ids';
 import { LIBRARY } from '../../src/lib/library';
 import {
-  describeLift, DIVISIONS, latestBodyKg, liftRanks, overallRank, rankFor, rankSetup, rankTitle, rankUps, standardFor, STANDARDS, stepAfter,
-  STEPS, stepStart, TIERS,
+  BODY_PARTS, bodyPartRanks, describeLift, DIVISIONS, latestBodyKg, liftRanks, overallRank, rankFor, rankSetup, rankTitle, rankUps,
+  standardFor, STANDARDS, stepAfter, STEPS, stepStart, TIERS,
 } from '../../src/lib/ranks';
 import type { LiftRank } from '../../src/lib/ranks';
 import { defaultSettings, emptyState, normalizeSettings } from '../../src/lib/types';
@@ -438,6 +438,49 @@ describe('the overall rank', () => {
 
   it('does not exist before any lift is ranked', () => {
     expect(overallRank([])).toEqual({ rank: null, best: { push: null, pull: null, legs: null } });
+  });
+});
+
+describe('a rank for each part of the body', () => {
+  const partOf = (state: AppState, part: string) => bodyPartRanks(liftRanks(state)).find((entry) => entry.part === part)!;
+
+  it("is that of the part's best lift", () => {
+    const state = lifter(80);
+    log(state, 'Incline Bench Press (Barbell)', [[60, 1]]); // the weaker of the two chest lifts
+    log(state, 'Bench Press (Barbell)', [[100, 1]]); // 0.625
+    log(state, 'Squat (Barbell)', [[108, 1]]); // 0.5
+    expect(partOf(state, 'chest').best?.exercise.name).toBe('Bench Press (Barbell)');
+    expect(rankTitle(partOf(state, 'chest').best!)).toBe('Gold II');
+    expect(partOf(state, 'chest').lifts).toBe(2);
+    // Whatever order the lifts come in.
+    const weakestFirst = [...liftRanks(state)].reverse();
+    expect(bodyPartRanks(weakestFirst).find((entry) => entry.part === 'chest')!.best?.exercise.name).toBe('Bench Press (Barbell)');
+    expect(partOf(state, 'quads')).toMatchObject({ lifts: 1, best: { exercise: { name: 'Squat (Barbell)' } } });
+  });
+
+  it('lists every part, ranked or not, from the top of the body down', () => {
+    const state = lifter(80);
+    log(state, 'Squat (Barbell)', [[108, 1]]);
+    const parts = bodyPartRanks(liftRanks(state));
+    expect(parts.map((entry) => entry.part)).toEqual([...BODY_PARTS]);
+    expect(parts.filter((entry) => entry.best).map((entry) => entry.part)).toEqual(['quads']);
+    expect(partOf(state, 'calves')).toEqual({ part: 'calves', best: null, lifts: 0 });
+  });
+
+  it('counts a lift for the one muscle it is listed under', () => {
+    const state = lifter(80);
+    log(state, 'Bench Press (Barbell)', [[100, 1]]);
+    // A bench press works the triceps and the shoulders too, but it is listed under the chest.
+    expect(partOf(state, 'chest').best).not.toBeNull();
+    expect(partOf(state, 'triceps').best).toBeNull();
+    expect(partOf(state, 'shoulders').best).toBeNull();
+  });
+
+  it('leaves out a lift that belongs to no one part', () => {
+    const state = lifter(80);
+    log(state, 'Power Clean (Barbell)', [[100, 1]]); // listed as full body
+    expect(liftRanks(state)).toHaveLength(1);
+    expect(bodyPartRanks(liftRanks(state)).every((entry) => entry.best === null && entry.lifts === 0)).toBe(true);
   });
 });
 

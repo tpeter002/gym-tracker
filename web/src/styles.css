@@ -19,6 +19,7 @@
   --warm: #b25000;
   --chart-line: #c2410c;
   --chart-grid: #e5e5ea;
+  --figure: #e7e7ec;
   --bar-bg: rgba(242, 242, 247, 0.94);
   --segment: #ffffff;
   --shadow: 0 10px 36px rgba(0, 0, 0, 0.18);
@@ -45,6 +46,7 @@
     --warm: #ffb340;
     --chart-line: #e0662b;
     --chart-grid: #38383a;
+    --figure: #2e2e31;
     --bar-bg: rgba(0, 0, 0, 0.9);
     --segment: #636366;
     --shadow: 0 10px 36px rgba(0, 0, 0, 0.6);
@@ -605,6 +607,18 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 .rank-line { font-weight: 600; }
 .rank-rise { display: inline-flex; align-items: center; gap: 4px; color: var(--green); font-size: 13px; font-weight: 600; white-space: nowrap; }
 .rank-region { flex: none; width: 44px; color: var(--text-2); font-size: 13px; font-weight: 600; text-transform: uppercase; }
+
+/* The body with each part in its rank's colour (ui/BodyMap.tsx). */
+.body-map-block { display: flex; justify-content: center; padding: 16px 16px 8px; }
+.body-map { display: block; width: 100%; max-width: 300px; height: auto; }
+/* A solid colour, not a see-through one: the figure is made of overlapping pieces, which would otherwise show. */
+.body-frame { fill: var(--figure); stroke: var(--figure); stroke-linecap: round; }
+.body-frame circle, .body-frame rect, .body-frame path, .body-frame ellipse { stroke: none; }
+/* A hairline of the card's own colour around each part keeps neighbours of one tier apart. */
+.body-parts [data-part] { fill: var(--tier); stroke: var(--surface); stroke-width: 1.5; }
+/* Not ranked: an outline only, so that it can't be taken for the grey of Iron or Silver. */
+.body-parts [data-part]:not([data-tier]) { fill: none; stroke: var(--text-2); stroke-width: 0.9; stroke-dasharray: 2.2 2.2; opacity: 0.55; }
+.body-map text { fill: var(--text-2); font-size: 9px; font-weight: 600; text-anchor: middle; }
 
 .rank-ladder { display: grid; grid-template-columns: repeat(7, 1fr); padding: 14px 6px 12px; }
 .rank-ladder span { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--text-2); font-size: 9.5px; font-weight: 600; letter-spacing: -0.1px; }
